@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 #
 # Copyright (C) 2006 Jens Gutzeit <jens@jgutzeit.de>
 #
@@ -42,9 +42,7 @@ CLASSIFIERS = ['Development Status :: 3 - Alpha',
                'Programming Language :: Python']
 PLATFORMS = 'Python 2.3 and later.'
 
-# FIXME: extra compiler arguments
-#EXTRA_COMPILE_ARGS = ['-O6', '-funroll-all-loops']
-EXTRA_COMPILE_ARGS = ['-O6', '-funroll-all-loops']
+EXTRA_COMPILE_ARGS = ['-O3', '-funroll-all-loops']
 
 # Check Python version
 if sys.version < '2.3.0':
@@ -78,7 +76,7 @@ core.setup(
                  Extension('Corewar.Optimizing',
                            include_dirs=['src/'],
                            sources=['src/BenchWarrior.c',
-			            'src/BenchPositioning.c',
+			       'src/BenchPositioning.c',
 				    'src/OptMARS94nop.c',
 				    'src/Optimizingmodule.c'],
                            extra_compile_args=EXTRA_COMPILE_ARGS),
