@@ -1,0 +1,20 @@
+
+		/* Run one round. */
+		cycle = 2 * maxcycles;
+
+		/* Update instruction counter with preliminary number of
+		 * executed instructions. */
+		insn_counter += 2 * maxcycles;
+		do {
+			insn_t *ip;    /* Pointer to the currently executed
+				        * instruction. */
+			field_t ra_a;  /* A register values */
+			field_t ra_b;
+			field_t rb_a;  /* B register values */
+			field_t rb_b;
+			insn_t *aAddr; /* Pointer to address specified by
+					* A operand. */
+			insn_t *bAddr; /* Pointer to address specified by
+					* B operand. */
+
+			field_t *tmp_field;

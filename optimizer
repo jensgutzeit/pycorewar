@@ -1,0 +1,1685 @@
+#!/usr/bin/python
+#
+# Optimizer for PyCorewar
+#
+# Copyright (C) 2006 Jens Gutzeit <jens@jgutzeit.de>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+
+import ConfigParser, optparse, os, os.path, sys
+
+# Version information.
+PYCOREWAR_VERSION = '0.3.0'
+VERSION = '2.3.0'
+DATE = 'Mon Jun 19 11:27:32 UTC 2006'
+
+MODES = {'#': 'IMMEDIATE', '$': 'DIRECT',
+         '@': 'B_INDIRECT', '<': 'B_PREDECREMENT', '>': 'B_POSTINCREMENT',
+         '*': 'A_INDIRECT', '{': 'A_PREDECREMENT', '}': 'A_POSTINCREMENT'}
+
+def indent(code, level=3):
+    """Return correctly indented C code."""
+
+    return '\t' * level + code + '\n'
+
+def pq_append_code(var, level, config):
+    """Return optimized code for setting jump destination."""
+
+    pq_append = 'PQ_'
+    if config.get('94nop MARS', 'process_queue_size') == 'small':
+        pq_append += 'S'
+    else:
+        pq_append += 'B'
+    if config.getboolean('94nop MARS', 'interleaved_process_queue'):
+        pq_append += 'I_APPEND'
+    else:
+        pq_append += 'NI_APPEND'
+
+    return indent('%s(%s);' % (pq_append, var), level)
+
+def pq_next_insn_code(var, level, config):
+    """Return optimized code for setting next instruction."""
+
+    s  = indent('/* Queue next instruction. */', level)
+    s += indent('IPINCMOD(%s);' % var, level)
+    s += pq_append_code(var, level, config)
+
+    return s
+
+def optimized_mov_a(amode, bmode, config):
+    """Generate optimized C-code for MOV.A."""
+
+    level = 4
+    s = ''
+    bmode_val = 'ip->b'
+        
+    # Evaluate A-operand.
+    aAddr_a = 'aAddr->a'
+    if amode == '#':
+        s += indent('/* Evaluate A-operand. */', level)
+        if bmode in ('{', '}'):
+            s += indent('ra_a = ip->a;', level)
+            aAddr_a = 'ra_a'
+        else:
+            s += indent('/* Nothing to do. */', level)
+            aAddr_a = 'ip->a'
+    elif amode == '$':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        if bmode in ('{', '}'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+    elif amode == '@':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+        if bmode in ('{', '}'):
+           s += indent('ra_a = aAddr->a;', level)
+           aAddr_a = 'ra_a'
+    elif amode == '<':
+        if not bmode == '#':
+            bmode_val = 'rb_b'
+            s += indent('/* Save value, because it might be', level)
+            s += indent(' * changed by evaluation of A-operand. */', level)
+            s += indent('rb_b = ip->b;', level)
+            s += '\n'
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('DECMOD(aAddr->b);', level)
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+        if bmode in ('{', '}'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+    elif amode == '>':
+        if not bmode == '#':
+            bmode_val = 'rb_b'
+            s += indent('/* Save value, because it might be', level)
+            s += indent(' * changed by evaluation of A-operand. */', level)
+            s += indent('rb_b = ip->b;', level)
+            s += '\n'
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('tmp_field = &(aAddr->b);', level)
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+        s += indent('INCMOD(*tmp_field);', level)
+        if bmode in ('{', '}'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+    elif amode == '*':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+        if bmode in ('{', '}'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+    elif amode == '{':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('DECMOD(aAddr->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+        if bmode in ('{', '}'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+    elif amode == '}':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('tmp_field = &(aAddr->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+        s += indent('ra_a = aAddr->a;', level)
+        s += indent('INCMOD(*tmp_field);', level)
+        aAddr_a = 'ra_a'
+    else:
+        print 'Invalid A-mode (%s) in mov.a.' % amode
+        sys.exit(1)
+    s += '\n'
+
+    # Evaluate B-operand.
+    s += indent('/* Evaluate B-operand. */', level)
+    bAddr = 'bAddr'
+    if bmode == '#':
+        s += indent('/* Nothing to do. */', level)
+        bAddr = 'ip'
+    elif bmode == '$':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+    elif bmode == '@':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('ADDADDR(bAddr, bAddr->b);', level)
+    elif bmode == '<':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('DECMOD(bAddr->b);', level)
+        s += indent('ADDADDR(bAddr, bAddr->b);', level)
+    elif bmode == '>':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('tmp_field = &(bAddr->b);', level)
+        s += indent('ADDADDR(bAddr, bAddr->b);', level)
+        s += indent('INCMOD(*tmp_field);', level)
+    elif bmode == '*':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('ADDADDR(bAddr, bAddr->a);', level)
+    elif bmode == '{':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('DECMOD(bAddr->a);', level)
+        s += indent('ADDADDR(bAddr, bAddr->a);', level)
+    elif bmode == '}':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('tmp_field = &(bAddr->a);', level)
+        s += indent('ADDADDR(bAddr, bAddr->a);', level)
+        s += indent('INCMOD(*tmp_field);', level)
+    else:
+        print 'Invald B-mode (%s) for mov.a' % bmode
+        sys.exit(1)
+    s += '\n'
+
+    # Execute instruction.
+    if amode == '#' and bmode == '#':
+        s += indent('/* No need to copy anything. */', level)
+    else:
+        s += indent('/* Copy A-field to A-field. */', level)
+        s += indent('%s->a = %s;' % (bAddr, aAddr_a), level)
+    s += '\n'
+
+    s += pq_next_insn_code('ip', level, config)
+
+    return s
+
+def optimized_mov_i(amode, bmode, config):
+    """Generate optimized code for MOV.I."""
+
+    level = 4
+    s = ''
+    bmode_val = 'ip->b'
+        
+    # Evaluate A-operand.
+    aAddr_insn = 'aAddr->insn'
+    aAddr_a = 'aAddr->a'
+    aAddr_b = 'aAddr->b'
+    if amode == '#':
+        s += indent('/* Evaluate A-operand. */', level)
+        aAddr_insn = 'ip->insn'
+        if bmode in ('{', '}'):
+            s += indent('ra_a = ip->a;', level)
+            aAddr_a = 'ra_a'
+            aAddr_b = 'ip->b'
+        elif bmode in ('<', '>'):
+            s += indent('ra_b = ip->b;', level)
+            aAddr_b = 'ra_b'
+            aAddr_a = 'ip->a'
+        else:
+            s += indent('/* Nothing to do. */', level)
+            aAddr_a = 'ip->a'
+            aAddr_b = 'ip->b'
+    elif amode == '$':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        if bmode in ('{', '}'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+        elif bmode in ('<', '>'):
+            s += indent('ra_b = aAddr->b;', level)
+            aAddr_b = 'ra_b'
+    elif amode == '@':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+        if bmode in ('{', '}'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+        elif bmode in ('<', '>'):
+            s += indent('ra_b = aAddr->b;', level)
+            aAddr_b = 'ra_b'
+    elif amode == '<':
+        if not bmode == '#':
+            bmode_val = 'rb_b'
+            s += indent('/* Save value, because it might be', level)
+            s += indent(' * changed by evaluation of A-operand. */', level)
+            s += indent('rb_b = ip->b;', level)
+            s += '\n'
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('DECMOD(aAddr->b);', level)
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+        if bmode in ('{', '}'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+        elif bmode in ('<', '>'):
+            s += indent('ra_b = aAddr->b;', level)
+            aAddr_b = 'ra_b'
+    elif amode == '>':
+        if not bmode == '#':
+            bmode_val = 'rb_b'
+            s += indent('/* Save value, because it might be', level)
+            s += indent(' * changed by evaluation of A-operand. */', level)
+            s += indent('rb_b = ip->b;', level)
+            s += '\n'
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('tmp_field = &(aAddr->b);', level)
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+        s += indent('ra_b = aAddr->b;', level)
+        aAddr_b = 'ra_b'
+        if bmode in ('{', '}'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+        s += indent('INCMOD(*tmp_field);', level)
+    elif amode == '*':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+        if bmode in ('{', '}'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+        elif bmode in ('<', '>'):
+            s += indent('ra_b = aAddr->b;', level)
+            aAddr_b = 'ra_b'
+    elif amode == '{':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('DECMOD(aAddr->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+        if bmode in ('{', '}'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+        elif bmode in ('<', '>'):
+            s += indent('ra_b = aAddr->b;', level)
+            aAddr_b = 'ra_b'
+    elif amode == '}':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('tmp_field = &(aAddr->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+        s += indent('ra_a = aAddr->a;', level)
+        aAddr_a = 'ra_a'
+        if bmode in ('<', '>'):
+            s += indent('ra_b = aAddr->b;', level)
+            aAddr_b = 'ra_b'
+        s += indent('INCMOD(*tmp_field);', level)
+    else:
+        print 'Invalid A-mode (%s) in mov.i.' % amode
+        sys.exit(1)
+    s += '\n'
+
+    # Evaluate B-operand.
+    s += indent('/* Evaluate B-operand. */', level)
+    bAddr = 'bAddr'
+    if bmode == '#':
+        s += indent('/* Nothing to do. */', level)
+        bAddr = 'ip'
+    elif bmode == '$':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+    elif bmode == '@':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('ADDADDR(bAddr, bAddr->b);', level)
+    elif bmode == '<':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('DECMOD(bAddr->b);', level)
+        s += indent('ADDADDR(bAddr, bAddr->b);', level)
+    elif bmode == '>':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('tmp_field = &(bAddr->b);', level)
+        s += indent('ADDADDR(bAddr, bAddr->b);', level)
+        s += indent('INCMOD(*tmp_field);', level)
+    elif bmode == '*':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('ADDADDR(bAddr, bAddr->a);', level)
+    elif bmode == '{':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('DECMOD(bAddr->a);', level)
+        s += indent('ADDADDR(bAddr, bAddr->a);', level)
+    elif bmode == '}':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('tmp_field = &(bAddr->a);', level)
+        s += indent('ADDADDR(bAddr, bAddr->a);', level)
+        s += indent('INCMOD(*tmp_field);', level)
+    else:
+        print 'Invald B-mode (%s) for mov.b' % bmode
+        sys.exit(1)
+    s += '\n'
+
+    # Execute instruction.
+    if amode == '#' and bmode == '#':
+        s += indent('/* No need to copy anything. */', level)
+    else:
+        s += indent('/* Copy complete instruction. */', level)
+        if aAddr_insn == 'aAddr->insn' and aAddr_a == 'aAddr->a' and\
+            aAddr_b == 'aAddr->b':
+            s += indent('*%s = *aAddr;' % bAddr, level)
+        elif aAddr_insn == 'ip->insn' and aAddr_a == 'ip->a' and\
+            aAddr_b == 'ip->b':
+            s += indent('*%s = *ip;' % bAddr, level)
+        else:
+            s += indent('%s->insn = %s;' % (bAddr, aAddr_insn), level)
+            s += indent('%s->a = %s;' % (bAddr, aAddr_a), level)
+            s += indent('%s->b = %s;' % (bAddr, aAddr_b), level)
+    s += '\n'
+
+    s += pq_next_insn_code('ip', level, config)
+
+    return s
+
+def optimized_mov(modifier, amode, bmode, config):
+    """Generate optimized C-code for MOV."""
+
+    if modifier == 'a':
+        s = optimized_mov_a(amode, bmode, config)
+    elif modifier == 'b':
+        s = optimized_mov_b(amode, bmode, config)
+    elif modifier == 'i':
+        s = optimized_mov_i(amode, bmode, config)
+
+    return s
+
+def optimized_spl(modifier, amode, bmode, config):
+    """Return optimized code for SPL."""
+
+    level = 4
+    s = ''
+
+    bmode_val = 'ip->b'
+    # Evaluate A-operand.
+    if amode == '#':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('aAddr = ip;', level)
+    elif amode == '$':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level);
+    elif amode == '@':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level);
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+    elif amode == '<':
+        if bmode in ('<', '>', '{', '}'):
+            # Save value for B-mode evaluation.
+            bmode_val = 'rb_b'
+            s += indent('/* Save value, because it might be', level)
+            s += indent(' * changed by evaluation of A-operand. */', level)
+            s += indent('rb_b = ip->b;', level)
+            s += '\n'
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level);
+        s += indent('DECMOD(aAddr->b);', level)
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+    elif amode == '>':
+        if bmode in ('<', '>', '{', '}'):
+            # Save value for B-mode evaluation.
+            bmode_val = 'rb_b'
+            s += indent('/* Save value, because it might be', level)
+            s += indent(' * changed by evaluation of A-operand. */', level)
+            s += indent('rb_b = ip->b;', level)
+            s += '\n'
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level);
+        s += indent('tmp_field = &(aAddr->b);', level)
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+        s += indent('INCMOD(*tmp_field);', level)
+    elif amode == '*':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level);
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+    elif amode == '{':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level);
+        s += indent('DECMOD(aAddr->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+    elif amode == '}':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level);
+        s += indent('tmp_field = &(aAddr->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+        s += indent('INCMOD(*tmp_field);', level)
+    else:
+        print 'Invalid A-mode (%s) in spl.' % amode
+        sys.exit(1)
+    s += indent('/* No need to save ra_a or ra_b. */', level)
+    s += '\n'
+
+    # Evaluate B-operand.
+    if bmode in ('#', '$', '@', '*'):
+        s += indent('/* No need to evaluate B-operand. */', level)
+    elif bmode == '<':
+        s += indent('/* Partially evaluate B-operand. */', level)
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('DECMOD(bAddr->b);', level)
+    elif bmode == '>':
+        s += indent('/* Partially evaluate B-operand. */', level)
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('INCMOD(bAddr->b);', level)
+    elif bmode == '{':
+        s += indent('/* Partially evaluate B-operand. */', level)
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('DECMOD(bAddr->a);', level)
+    elif bmode == '}':
+        s += indent('/* Partially evaluate B-operand. */', level)
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('INCMOD(bAddr->a);', level)
+    else:
+        print 'Invalid B-mode (%s) in spl.' % bmode
+        sys.exit(1)
+    s += '\n'
+
+    # Execute instruction.
+    s += pq_next_insn_code('ip', level, config)
+    s += '\n'
+    s += indent('/* Queue new process, if possible. */', level)
+    s += indent('if (pqinfo->numprocesses < maxprocesses) {', level)
+    s += indent('pqinfo->numprocesses++;', level + 1)
+    s += pq_append_code('aAddr', level + 1, config)
+    s += indent('}', level)
+
+    return s
+
+def optimized_dat(modifier, amode, bmode, config):
+    """Return optimized code for dat."""
+
+    level = 4
+    s = ''
+    bmode_val = 'ip->b'
+
+    # A-operand
+    if amode in ('#', '$', '@', '*'):
+        s += indent('/* No need to evaluate A-operand. */', level)
+        s += '\n'
+    elif amode == '<':
+        if bmode in ('<', '>', '{', '}'):
+            # Save value for B-mode evaluation.
+            bmode_val = 'rb_b'
+            s += indent('/* Save value, because it might be', level)
+            s += indent(' * changed by evaluation of A-operand. */', level)
+            s += indent('rb_b = ip->b;', level)
+            s += '\n'
+
+        s += indent('/* Partially evaluate A-operand. */', level)
+        if bmode in ('#', '$', '@', '*'):
+            s += indent('/* Use ip instead of aAddr. */', level)
+            s += indent('ADDADDR(ip, ip->a);', level)
+            s += indent('DECMOD(ip->b);', level)
+        else:
+            s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+            s += indent('DECMOD(aAddr->b);', level)
+        s += '\n'
+    elif amode == '>':
+        if bmode in ('<', '>', '{', '}'):
+            # Save value for B-mode evaluation.
+            bmode_val = 'rb_b'
+            s += indent('/* Save value, because it might be', level)
+            s += indent(' * changed by evaluation of A-operand. */', level)
+            s += indent('rb_b = ip->b;', level)
+            s += '\n'
+
+        s += indent('/* Partially evaluate A-operand. */', level)
+        if bmode in ('#', '$', '@', '*'):
+            s += indent('/* Use ip instead of aAddr. */', level)
+            s += indent('ADDADDR(ip, ip->a);', level)
+            s += indent('INCMOD(ip->b);', level)
+        else:
+            s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+            s += indent('INCMOD(aAddr->b);', level)
+        s += '\n'
+    elif amode == '{':
+        s += indent('/* Partially evaluate A-operand. */', level)
+        if bmode in ('#', '$', '@', '*'):
+            s += indent('/* Use ip instead of aAddr. */', level)
+            s += indent('ADDADDR(ip, ip->a);', level)
+            s += indent('DECMOD(ip->a);', level)
+        else:
+            s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+            s += indent('DECMOD(aAddr->a);', level)
+        s += '\n'
+    elif amode == '}':
+        s += indent('/* Partially evaluate A-operand. */', level)
+        if bmode in ('#', '$', '@', '*'):
+            s += indent('/* Use ip instead of aAddr. */', level)
+            s += indent('ADDADDR(ip, ip->a);', level)
+            s += indent('INCMOD(ip->a);', level)
+        else:
+            s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+            s += indent('INCMOD(aAddr->a);', level)
+        s += '\n'
+    else:
+        print 'Invalid A-mode (%s) in dat.' % amode
+        sys.exit(1)
+        
+    # B-operand
+    if bmode in ('#', '$', '@', '*'):
+        s += indent('/* No need to evaluate B-operand. */', level)
+        s += '\n'
+    elif bmode == '<':
+        s += indent('/* Partially evaluate B-operand. */', level)
+        s += indent('/* Use ip instead of bAddr. */', level)
+        s += indent('ADDADDR(ip, %s);' % bmode_val, level)
+        s += indent('DECMOD(ip->b);', level)
+        s += '\n'
+    elif bmode == '>':
+        s += indent('/* Partially evaluate B-operand. */', level)
+        s += indent('/* Use ip instead of bAddr. */', level)
+        s += indent('ADDADDR(ip, %s);' % bmode_val, level)
+        s += indent('INCMOD(ip->b);', level)
+        s += '\n'
+    elif bmode == '{':
+        s += indent('/* Partially evaluate B-operand. */', level)
+        s += indent('/* Use ip instead of bAddr. */', level)
+        s += indent('ADDADDR(ip, %s);' % bmode_val, level)
+        s += indent('DECMOD(ip->a);', level)
+        s += '\n'
+    elif bmode == '}':
+        s += indent('/* Partially evaluate B-operand. */', level)
+        s += indent('/* Use ip instead of bAddr. */', level)
+        s += indent('ADDADDR(ip, %s);' % bmode_val, level)
+        s += indent('INCMOD(ip->a);', level)
+        s += '\n'
+    else:
+        print 'Invalid B-mode (%s) in dat.' % bmode
+        sys.exit(1)
+
+    # Execute instruction.
+    s += indent('/* Current processes dies. Finish this round,', level)
+    s += indent(' * if warrior is dead. */', level)
+    s += indent('if (--pqinfo->numprocesses == 0) {', level)
+    s += indent('/* Update instruction counter. */', level + 1)
+    s += indent('insn_counter -= cycle - 1;', level + 1)
+    s += '\n'
+    s += indent('cycle = 1;', level + 1)
+    s += indent('}', level)
+
+    return s
+
+def optimized_djn(modifier, amode, bmode, config):
+    """Return optimized code for djn."""
+
+    level = 4
+    s = ''
+    bmode_val = 'ip->b'
+    
+    # Evaluate A-operand.
+    if amode == '#':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('aAddr = ip;', level)
+    elif amode == '$':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+    elif amode == '@':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+    elif amode == '<':
+        s += indent('/* Save value, because it might be changed', level)
+        s += indent(' * by the evaluation of the A-operand. */', level)
+        s += indent('rb_b = ip->b;', level)
+        s += '\n'
+        bmode_val = 'rb_b'
+        
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('DECMOD(aAddr->b);', level)
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+    elif amode == '>':
+        s += indent('/* Save value, because it might be changed', level)
+        s += indent(' * by the evaluation of the A-operand. */', level)
+        s += indent('rb_b = ip->b;', level)
+        s += '\n'
+        bmode_val = 'rb_b'
+
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('tmp_field = &(aAddr->b);', level)
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+        s += indent('INCMOD(*tmp_field);', level)
+    elif amode == '*':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+    elif amode == '{':
+        if bmode == '#' and modifier in ('a', 'ba', 'f', 'i', 'x'):
+            s += indent('/* Save value, because it might be changed', level)
+            s += indent(' * by the evaluation of the A-operand. */', level)
+            s += indent('rb_a = ip->a;', level)
+            s += '\n'
+
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('DECMOD(aAddr->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+    elif amode == '}':
+        if bmode == '#' and modifier in ('a', 'ba', 'f', 'i', 'x'):
+            s += indent('/* Save value, because it might be changed', level)
+            s += indent(' * by the evaluation of the A-operand. */', level)
+            s += indent('rb_a = ip->a;', level)
+            s += '\n'
+
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('tmp_field = &(aAddr->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+        s += indent('INCMOD(*tmp_field);', level)
+    else:
+        print 'Invalid A-mode (%s) in djn.' % amode
+        sys.exit(1)
+    s += '\n'
+    
+    # Evaluate B-operand.
+    s += indent('/* Evaluate B-operand. */', level)
+    if bmode == '#':
+        s += indent('bAddr = ip;', level)
+        if modifier in ('a', 'ba'):
+            if not amode in ('{', '}'):
+                s += indent('rb_a = ip->a;', level)
+        elif modifier in ('b', 'ab'):
+            if not amode in ('<', '>'):
+                s += indent('rb_b = ip->b;', level)
+        elif modifier in ('f', 'i', 'x'):
+            if not amode in ('{', '}'):
+                s += indent('rb_a = ip->a;', level)
+            if not amode in ('<', '>'):
+                s += indent('rb_b = ip->b;', level)
+    elif bmode == '$':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        if modifier in ('a', 'ba'):
+            s += indent('rb_a = bAddr->a;', level)
+        elif modifier in ('b', 'ab'):
+            s += indent('rb_b = bAddr->b;', level)
+        elif modifier in ('f', 'i', 'x'):
+            s += indent('rb_a = bAddr->a;', level)
+            s += indent('rb_b = bAddr->b;', level)
+    elif bmode == '@':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('ADDADDR(bAddr, bAddr->b);', level)
+        if modifier in ('a', 'ba'):
+            s += indent('rb_a = bAddr->a;', level)
+        elif modifier in ('b', 'ab'):
+            s += indent('rb_b = bAddr->b;', level)
+        elif modifier in ('f', 'i', 'x'):
+            s += indent('rb_a = bAddr->a;', level)
+            s += indent('rb_b = bAddr->b;', level)
+    elif bmode == '<':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('DECMOD(bAddr->b);', level)
+        s += indent('ADDADDR(bAddr, bAddr->b);', level)
+        if modifier in ('a', 'ba'):
+            s += indent('rb_a = bAddr->a;', level)
+        elif modifier in ('b', 'ab'):
+            s += indent('rb_b = bAddr->b;', level)
+        elif modifier in ('f', 'i', 'x'):
+            s += indent('rb_a = bAddr->a;', level)
+            s += indent('rb_b = bAddr->b;', level)
+    elif bmode == '>':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('tmp_field = &(bAddr->b);', level)
+        s += indent('ADDADDR(bAddr, bAddr->b);', level)
+        if modifier in ('a', 'ba'):
+            s += indent('rb_a = bAddr->a;', level)
+        elif modifier in ('b', 'ab'):
+            s += indent('rb_b = bAddr->b;', level)
+        elif modifier in ('f', 'i', 'x'):
+            s += indent('rb_a = bAddr->a;', level)
+            s += indent('rb_b = bAddr->b;', level)
+        s += indent('INCMOD(*tmp_field);', level)
+    elif bmode == '*':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('ADDADDR(bAddr, bAddr->a);', level)
+        if modifier in ('a', 'ba'):
+            s += indent('rb_a = bAddr->a;', level)
+        elif modifier in ('b', 'ab'):
+            s += indent('rb_b = bAddr->b;', level)
+        elif modifier in ('f', 'i', 'x'):
+            s += indent('rb_a = bAddr->a;', level)
+            s += indent('rb_b = bAddr->b;', level)
+    elif bmode == '{':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('DECMOD(bAddr->a);', level)
+        s += indent('ADDADDR(bAddr, bAddr->a);', level)
+        if modifier in ('a', 'ba'):
+            s += indent('rb_a = bAddr->a;', level)
+        elif modifier in ('b', 'ab'):
+            s += indent('rb_b = bAddr->b;', level)
+        elif modifier in ('f', 'i', 'x'):
+            s += indent('rb_a = bAddr->a;', level)
+            s += indent('rb_b = bAddr->b;', level)
+    elif bmode == '}':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('tmp_field = &(bAddr->a);', level)
+        s += indent('ADDADDR(bAddr, bAddr->a);', level)
+        if modifier in ('a', 'ba'):
+            s += indent('rb_a = bAddr->a;', level)
+        elif modifier in ('b', 'ab'):
+            s += indent('rb_b = bAddr->b;', level)
+        elif modifier in ('f', 'i', 'x'):
+            s += indent('rb_a = bAddr->a;', level)
+            s += indent('rb_b = bAddr->b;', level)
+        s += indent('INCMOD(*tmp_field);', level)
+    else:
+        print 'Invalid B-mode (%s) in djn.' % bmode
+        sys.exit(1)
+    s += '\n'
+
+    # Execute instruction.
+    if modifier in ('a', 'ba'):
+        s += indent('DECMOD(bAddr->a);', level)
+        s += indent('if (rb_a == 1) {', level)
+    elif modifier in ('b', 'ab'):
+        s += indent('DECMOD(bAddr->b);', level)
+        s += indent('if (rb_b == 1) {', level)
+    elif modifier in ('f', 'i', 'x'):
+        s += indent('DECMOD(bAddr->a);', level)
+        s += indent('DECMOD(bAddr->b);', level)
+        s += indent('if ((rb_a == 1) && (rb_b == 1)) {', level)
+    else:
+        print 'Invalid modifier (%s) in djn.' % modifier
+        sys.exit(1)
+
+    s += pq_next_insn_code('ip', level + 1, config)
+    s += indent('} else {', level)
+    s += indent('/* Queue jump destination. */', level + 1)
+    s += pq_append_code('aAddr', level + 1, config)
+    s += indent('}', level)
+
+    return s
+
+def optimized_jmp(modifier, amode, bmode, config):
+    """Return optimized code for jmp."""
+
+    level = 4
+    s = ''
+    bmode_val = 'ip->b'
+    jmp_addr = 'aAddr'
+
+    # Evaluate A-operand.
+    if amode == '#':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('/* Nothing to do. */', level)
+        jmp_addr = 'ip'
+    elif amode == '$':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level);
+    elif amode == '@':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level);
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+    elif amode == '<':
+        if bmode in ('<', '>', '{', '}'):
+            # Save value for B-mode evaluation.
+            bmode_val = 'rb_b'
+            s += indent('/* Save value, because it might be', level)
+            s += indent(' * changed by evaluation of A-operand. */', level)
+            s += indent('rb_b = ip->b;', level)
+            s += '\n'
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level);
+        s += indent('DECMOD(aAddr->b);', level)
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+    elif amode == '>':
+        if bmode in ('<', '>', '{', '}'):
+            # Save value for B-mode evaluation.
+            bmode_val = 'rb_b'
+            s += indent('/* Save value, because it might be', level)
+            s += indent(' * changed by evaluation of A-operand. */', level)
+            s += indent('rb_b = ip->b;', level)
+            s += '\n'
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level);
+        s += indent('tmp_field = &(aAddr->b);', level)
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+        s += indent('INCMOD(*tmp_field);', level)
+    elif amode == '*':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level);
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+    elif amode == '{':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level);
+        s += indent('DECMOD(aAddr->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+    elif amode == '}':
+        s += indent('/* Evaluate A-operand. */', level)
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level);
+        s += indent('tmp_field = &(aAddr->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+        s += indent('INCMOD(*tmp_field);', level)
+    else:
+        print 'Invalid A-mode (%s) in jmp.' % amode
+        sys.exit(1)
+    s += indent('/* No need to save ra_a or ra_b. */', level)
+    s += '\n'
+
+    # Evaluate B-operand.
+    if bmode in ('#', '$', '@', '*'):
+        s += indent('/* No need to evaluate B-operand. */', level)
+    elif bmode == '<':
+        s += indent('/* Partially evaluate B-operand. */', level)
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('DECMOD(bAddr->b);', level)
+    elif bmode == '>':
+        s += indent('/* Partially evaluate B-operand. */', level)
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('INCMOD(bAddr->b);', level)
+    elif bmode == '{':
+        s += indent('/* Partially evaluate B-operand. */', level)
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('DECMOD(bAddr->a);', level)
+    elif bmode == '}':
+        s += indent('/* Partially evaluate B-operand. */', level)
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('INCMOD(bAddr->a);', level)
+    else:
+        print 'Invalid B-mode (%s) in jmp.' % bmode
+        sys.exit(1)
+    s += '\n'
+
+    # Execute instruction.
+    s += indent('/* Queue jump destination. */', level)
+    s += pq_append_code(jmp_addr, level, config)
+
+    return s
+
+def optimized_add(modifier, amode, bmode, config):
+    """Return optimized code for add."""
+
+    level = 4
+    s = ''
+    bmode_val = 'ip->b'
+    bAddr = 'bAddr'
+    aAddr_a = 'aAddr->a'
+    aAddr_b = 'aAddr->b'
+    bAddr_a = 'bAddr->a'
+    bAddr_b = 'bAddr->b'
+
+    # Evaluate A-mode
+    s += indent('/* Evaluate A-operand. */', level)
+    if amode == '#':
+        raise NotImplementedError
+    elif amode == '$':
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        if bmode in ('{', '}') and modifier in ('a', 'ba', 'f', 'i', 'x'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+        elif bmode in ('<', '>') and modifier in ('b', 'ab', 'f', 'i', 'x'):
+            s += indent('ra_b = aAddr->b;', level)
+            aAddr_b = 'ra_b'
+    elif amode == '@':
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+        if bmode in ('{', '}') and modifier in ('a', 'ba', 'f', 'i', 'x'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+        elif bmode in ('<', '>') and modifier in ('b', 'ab', 'f', 'i', 'x'):
+            s += indent('ra_b = aAddr->b;', level)
+            aAddr_b = 'ra_b'
+    elif amode == '<':
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('DECMOD(aAddr->b);', level)
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+        if bmode in ('{', '}') and modifier in ('a', 'ba', 'f', 'i', 'x'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+        elif bmode in ('<', '>') and modifier in ('b', 'ab', 'f', 'i', 'x'):
+            s += indent('ra_b = aAddr->b;', level)
+            aAddr_b = 'ra_b'
+    elif amode == '>':
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('tmp_field = &(aAddr->b);', level)
+        s += indent('ADDADDR(aAddr, aAddr->b);', level)
+        if modifier in ('a', 'ba', 'f', 'i', 'x'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+        if modifier in ('b', 'ab', 'f', 'i', 'x'):
+            s += indent('ra_b = aAddr->b;', level)
+            aAddr_b = 'ra_b'
+        s += indent('INCMOD(*tmp_field);', level)
+    elif amode == '*':
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+        if bmode in ('{', '}') and modifier in ('a', 'ba', 'f', 'i', 'x'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+        elif bmode in ('<', '>') and modifier in ('b', 'ab', 'f', 'i', 'x'):
+            s += indent('ra_b = aAddr->b;', level)
+            aAddr_b = 'ra_b'
+    elif amode == '{':
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('DECMOD(aAddr->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+        if bmode in ('{', '}') and modifier in ('a', 'ba', 'f', 'i', 'x'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+        elif bmode in ('<', '>') and modifier in ('b', 'ab', 'f', 'i', 'x'):
+            s += indent('ra_b = aAddr->b;', level)
+            aAddr_b = 'ra_b'
+    elif amode == '}':
+        s += indent('ASSIGNADDR(aAddr, ip, ip->a);', level)
+        s += indent('tmp_field = &(aAddr->a);', level)
+        s += indent('ADDADDR(aAddr, aAddr->a);', level)
+        if modifier in ('a', 'ba', 'f', 'i', 'x'):
+            s += indent('ra_a = aAddr->a;', level)
+            aAddr_a = 'ra_a'
+        if modifier in ('b', 'ab', 'f', 'i', 'x'):
+            s += indent('ra_b = aAddr->b;', level)
+            aAddr_b = 'ra_b'
+        s += indent('INCMOD(*tmp_field);', level)
+    else:
+        print 'Invalid A-mode (%s) for add.' % amode
+        sys.exit(1)
+    s += '\n'
+
+    # Evaluate B-mode
+    s += indent('/* Evaluate B-operand. */', level)
+    if bmode == '#':
+        raise NotImplementedError
+    elif bmode == '$':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+    elif bmode == '@':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('ADDADDR(bAddr, bAddr->b);', level)
+    elif bmode == '<':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('DECMOD(bAddr->b);', level)
+        s += indent('ADDADDR(bAddr, bAddr->b);', level)
+    elif bmode == '>':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('tmp_field = &(bAddr->b);', level)
+        s += indent('ADDADDR(bAddr, bAddr->b);', level)
+        if modifier in ('a', 'ba'):
+            s += indent('rb_a = ip->a;', level)
+            bAddr_a = 'rb_a'
+        elif modifier in ('b', 'ab'):
+            s += indent('rb_b = ip->b;', level)
+            bAddr_b = 'rb_b'
+        elif modifier in ('f', 'i', 'x'):
+            s += indent('rb_a = ip->a;', level)
+            bAddr_a = 'rb_a'
+            s += indent('rb_b = ip->b;', level)
+            bAddr_b = 'rb_b'
+        s += indent('INCMOD(*tmp_field);', level)
+    elif bmode == '*':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('ADDADDR(bAddr, bAddr->a);', level)
+    elif bmode == '{':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('DECMOD(bAddr->a);', level)
+        s += indent('ADDADDR(bAddr, bAddr->a);', level)
+    elif bmode == '}':
+        s += indent('ASSIGNADDR(bAddr, ip, %s);' % bmode_val, level)
+        s += indent('tmp_field = &(bAddr->a);', level)
+        s += indent('ADDADDR(bAddr, bAddr->a);', level)
+        if modifier in ('a', 'ba'):
+            s += indent('rb_a = ip->a;', level)
+            bAddr_a = 'rb_a'
+        elif modifier in ('b', 'ab'):
+            s += indent('rb_b = ip->b;', level)
+            bAddr_b = 'rb_b'
+        elif modifier in ('f', 'i', 'x'):
+            s += indent('rb_a = ip->a;', level)
+            bAddr_a = 'rb_a'
+            s += indent('rb_b = ip->b;', level)
+            bAddr_b = 'rb_b'
+        s += indent('INCMOD(*tmp_field);', level)
+    else:
+        print 'Invalid B-mode (%s) for add.' % bmode
+        sys.exit(1)
+    s += '\n'
+
+    # Execute instruction.
+    s += indent('/* Execute instruction. */', level)
+    if modifier == 'a':
+        s += indent('ADDMOD(%s->a, %s, %s);' % (bAddr, bAddr_a, aAddr_a),\
+                    level)
+    elif modifier == 'b':
+        s += indent('ADDMOD(%s->b, %s, %s);' % (bAddr, bAddr_b, aAddr_b),\
+                    level)
+    elif modifier in ('f', 'i'):
+        s += indent('ADDMOD(%s->a, %s, %s);' % (bAddr, bAddr_a, aAddr_a),\
+                    level)
+        s += indent('ADDMOD(%s->b, %s, %s);' % (bAddr, bAddr_b, aAddr_b),\
+                    level)
+    elif modifier == 'x':
+        s += indent('ADDMOD(%s->a, %s, %s);' % (bAddr, bAddr_a, aAddr_b),\
+                    level)
+        s += indent('ADDMOD(%s->b, %s, %s);' % (bAddr, bAddr_b, aAddr_a),\
+                    level)
+    elif modifier == 'ab':
+        s += indent('ADDMOD(%s->b, %s, %s);' % (bAddr, bAddr_b, aAddr_a),\
+                    level)
+    elif modifier == 'ba':
+        s += indent('ADDMOD(%s->a, %s, %s);' % (bAddr, bAddr_a, aAddr_b),\
+                    level)
+    else:
+        print 'Invalid modifier (%s) for add.' % modifier
+        sys.exit(1)
+    s += '\n'
+
+    s += pq_next_insn_code('ip', level, config)
+
+    return s
+
+def cat(src_name, src):
+    """Copy the contents of file 'src_name' to opened file 'src'."""
+
+    template = open(os.path.normpath(src_name), 'r')
+    code = template.read()
+    template.close()
+    src.write(code)
+
+def reset(option, opt_str, value, parser):
+    """Reset all source files to standard settings."""
+
+    pass
+
+def create_88_run(config, prefix, src):
+    """Create run(..) in src/BenchMARS88.c with the given configuration and
+    output file."""
+
+    cat(prefix + '88_run.template', src)
+
+    template_name = prefix + 'run_'
+    template_name += config.get('88 MARS', 'process_queue_size')
+    if config.getboolean('88 MARS', 'interleaved_process_queue'):
+        template_name += '_interleaved_pq'
+    if config.getint('88 MARS', 'number_of_switches') % 2 == 0:
+        template_name += '_switched'
+    template_name += '.template'
+    cat(template_name, src)
+    
+    cat(prefix + '88_loop_start.template', src)
+
+    # run(..)/switch + end of function
+    # Build PQ_NEXT/PQ_APPEND.
+    pq_append = 'PQ_'
+    next_ip = 'PQ_'
+    if config.get('88 MARS', 'process_queue_size') == 'small':
+        pq_append += 'S'
+        next_ip += 'S'
+    else:
+        pq_append += 'B'
+        next_ip += 'B'
+    if config.getboolean('88 MARS', 'interleaved_process_queue'):
+        pq_append += 'I_APPEND'
+        next_ip += 'I_NEXT'
+    else:
+        pq_append += 'NI_APPEND'
+        next_ip += 'NI_NEXT'
+
+    num_switches = config.getint('88 MARS', 'number_of_switches') 
+    if num_switches == 1:
+        # Code for getting IP + create replacement for PQ_APPEND
+        code = indent('/* Get instruction pointer. */')
+        code += indent('%s(ip);' % next_ip);
+        src.write(code);
+
+        # Switch.
+        if config.get('88 MARS', 'size_of_switch') == 'small':
+            template_name = prefix + '88_run_small_body.template'
+        else:
+            template_name = prefix + '88_run_big_body.template'
+        template = open(os.path.normpath(template_name), 'r')
+        code = template.read().replace('PQ_APPEND', pq_append)
+        template.close()
+        src.write(code)
+
+        # End of function.
+        cat(prefix + 'run_end.template', src)
+    elif num_switches % 2 == 0:
+        # Read template.
+        template_name = prefix + '88_run_'
+        template_name += config.get('88 MARS', 'size_of_switch')
+        template_name += '_body_switched.template'
+        template = open(os.path.normpath(template_name), 'r')
+        code = template.read()
+        template.close()
+
+        # Build code for both switches.
+        switch1 = code.replace('PQ_APPEND', '%s1' % pq_append)
+        switch1 = switch1.replace('numprocesses', 'numprocesses1')
+        switch2 = code.replace('PQ_APPEND', '%s2' % pq_append)
+        switch2 = switch2.replace('numprocesses', 'numprocesses2')
+
+        next_warrior = 0
+        for i in xrange(num_switches / 2):
+            # First warrior.
+            next_warrior += 1
+            src.write(indent('/* Get instruction pointer. */'))
+            src.write(indent('%s1(ip);' % next_ip))
+            round_code = switch1.replace('queue', 'queue%d' % next_warrior)
+            src.write(round_code)
+
+            src.write('\n' + indent('if (--cycle == 0) goto round_done;'))
+
+            # Second warrior.
+            next_warrior += 1
+            src.write('\n' + indent('/* Get instruction pointer. */'))
+            src.write(indent('%s2(ip);' % next_ip))
+            round_code = switch2.replace('queue', 'queue%d' % next_warrior)
+            src.write(round_code)
+            if next_warrior == num_switches:
+                src.write(indent('if (0);'))
+            else:
+                src.write('\n' + indent('if (--cycle == 0) goto round_done;'))
+
+        # End of loop.
+        cat(prefix + 'run_end_switched.template', src)
+    else:
+        template_name  = prefix + '88_run_'
+        template_name += config.get('88 MARS', 'size_of_switch')
+        template_name += '_body.template'
+        template = open(os.path.normpath(template_name), 'r')
+        switch_code = template.read().replace('PQ_APPEND', pq_append)
+        template.close()
+
+        for i in xrange(num_switches):
+                # Get next instruction.
+                code = indent('/* Get instruction pointer. */')
+                code += indent('%s(ip);' % next_ip);
+                src.write(code)
+
+                # Switch
+                code = switch_code.replace('queue', 'queue%d' % (i + 1))
+                src.write(code)
+
+                # Test for end of round.
+                if not i == num_switches - 1:
+                    code  = '\n'
+                    code += indent('if (--cycle == 0) goto round_done;') + '\n'
+                    src.write(code)
+
+        cat(prefix + 'run_end_odd_switched.template', src) 
+
+def create_88_p_run(config, prefix, src):
+    """Create p_run(..) in src/BenchMARS88.c with the given configuration and
+    output file."""
+
+    cat(prefix + '88_p_run.template', src)
+
+    template_name = prefix + 'p_run_'
+    template_name += config.get('88 MARS', 'process_queue_size')
+    if config.getboolean('88 MARS', 'interleaved_process_queue'):
+        template_name += '_interleaved_pq'
+    if config.getint('88 MARS', 'number_of_switches') % 2 == 0:
+        template_name += '_switched'
+    template_name += '.template'
+    cat(template_name, src)
+    
+    cat(prefix + '88_loop_start.template', src)
+
+    # run(..)/switch + end of function
+    # Build PQ_NEXT/PQ_APPEND.
+    pq_append = 'PQ_'
+    next_ip = 'PQ_'
+    if config.get('88 MARS', 'process_queue_size') == 'small':
+        pq_append += 'S'
+        next_ip += 'S'
+    else:
+        pq_append += 'B'
+        next_ip += 'B'
+    if config.getboolean('88 MARS', 'interleaved_process_queue'):
+        pq_append += 'I_APPEND'
+        next_ip += 'I_NEXT'
+    else:
+        pq_append += 'NI_APPEND'
+        next_ip += 'NI_NEXT'
+
+    num_switches = config.getint('88 MARS', 'number_of_switches') 
+    if num_switches == 1:
+        # Code for getting IP + create replacement for PQ_APPEND
+        code = indent('/* Get instruction pointer. */')
+        code += indent('%s(ip);' % next_ip);
+        src.write(code);
+
+        # Switch.
+        if config.get('88 MARS', 'size_of_switch') == 'small':
+            template_name = prefix + '88_run_small_body.template'
+        else:
+            template_name = prefix + '88_run_big_body.template'
+        template = open(os.path.normpath(template_name), 'r')
+        code = template.read().replace('PQ_APPEND', pq_append)
+        template.close()
+        src.write(code)
+
+        # End of function.
+        cat(prefix + 'run_end.template', src)
+    elif num_switches % 2 == 0:
+        # Read template.
+        template_name = prefix + '88_run_'
+        template_name += config.get('88 MARS', 'size_of_switch')
+        template_name += '_body_switched.template'
+        template = open(os.path.normpath(template_name), 'r')
+        code = template.read()
+        template.close()
+
+        # Build code for both switches.
+        switch1 = code.replace('PQ_APPEND', '%s1' % pq_append)
+        switch1 = switch1.replace('numprocesses', 'numprocesses1')
+        switch2 = code.replace('PQ_APPEND', '%s2' % pq_append)
+        switch2 = switch2.replace('numprocesses', 'numprocesses2')
+
+        next_warrior = 0
+        for i in xrange(num_switches / 2):
+            # First warrior.
+            next_warrior += 1
+            src.write(indent('/* Get instruction pointer. */'))
+            src.write(indent('%s1(ip);' % next_ip))
+            round_code = switch1.replace('queue', 'queue%d' % next_warrior)
+            src.write(round_code)
+
+            src.write('\n' + indent('if (--cycle == 0) goto round_done;'))
+
+            # Second warrior.
+            next_warrior += 1
+            src.write('\n' + indent('/* Get instruction pointer. */'))
+            src.write(indent('%s2(ip);' % next_ip))
+            round_code = switch2.replace('queue', 'queue%d' % next_warrior)
+            src.write(round_code)
+            if next_warrior == num_switches:
+                src.write(indent('if (0);'))
+            else:
+                src.write('\n' + indent('if (--cycle == 0) goto round_done;'))
+
+        # End of loop.
+        cat(prefix + 'run_end_switched.template', src)
+    else:
+        template_name  = prefix + '88_run_'
+        template_name += config.get('88 MARS', 'size_of_switch')
+        template_name += '_body.template'
+        template = open(os.path.normpath(template_name), 'r')
+        switch_code = template.read().replace('PQ_APPEND', pq_append)
+        template.close()
+
+        for i in xrange(num_switches):
+                # Get next instruction.
+                code = indent('/* Get instruction pointer. */')
+                code += indent('%s(ip);' % next_ip);
+                src.write(code)
+
+                # Switch
+                code = switch_code.replace('queue', 'queue%d' % (i + 1))
+                src.write(code)
+
+                # Test for end of round.
+                if not i == num_switches - 1:
+                    code  = '\n'
+                    code += indent('if (--cycle == 0) goto round_done;') + '\n'
+                    src.write(code)
+
+        cat(prefix + 'run_end_odd_switched.template', src) 
+
+def create_88_mw_run(config, prefix, src):
+    """Create mw_run(..) in src/BenchMARS88.c with the given configuration and
+    output file."""
+
+    cat(prefix + '88_mw_run.template', src)
+
+    template_name = prefix + 'mw_run_'
+    template_name += config.get('88 MARS', 'process_queue_size')
+    template_name += '.template'
+    cat(template_name, src)
+    
+    cat(prefix + '88_mw_run_loop_start.template', src)
+
+    # run(..)/switch + end of function
+    # Build PQ_NEXT/PQ_APPEND.
+    pq_append = 'PQ_'
+    next_ip = 'PQ_'
+    if config.get('88 MARS', 'process_queue_size') == 'small':
+        pq_append += 'S'
+        next_ip += 'S'
+    else:
+        pq_append += 'B'
+        next_ip += 'B'
+    pq_append += 'NI_APPEND'
+    next_ip += 'NI_NEXT'
+
+    # Code for getting IP + create replacement for PQ_APPEND
+    code = indent('/* Get instruction pointer. */')
+    code += indent('%s(ip);' % next_ip);
+    src.write(code);
+
+    # Switch.
+    if config.get('88 MARS', 'size_of_switch') == 'small':
+        template_name = prefix + '88_mw_run_small_body.template'
+    else:
+        template_name = prefix + '88_mw_run_big_body.template'
+    template = open(os.path.normpath(template_name), 'r')
+    code = template.read().replace('PQ_APPEND', pq_append)
+    template.close()
+    src.write(code)
+
+    # End of function.
+    cat(prefix + 'mw_run_end.template', src)
+
+def create_88(config):
+    """Create src/BenchMARS88.c with the given configuration."""
+
+    print 'Creating src/BenchMARS88.c ...'
+    src = open(os.path.normpath('src/BenchMARS88.c'), 'w')
+    prefix = 'Optimization/Templates/'
+
+    cat(prefix + '88_header.template', src)
+    print '\tCreating code for function \'run\' ...'
+    create_88_run(config, prefix, src)
+    print '\tCreating code for function \'p_run\' ...'
+    create_88_p_run(config, prefix, src)
+    print '\tCreating code for function \'mw_run\' ...'
+    create_88_mw_run(config, prefix, src)
+
+    src.close()
+
+def create_94nop_run(config, prefix, src, freq):
+    """Create run(..) in src/BenchMARS94nop.c with the given configuration and
+    output file."""
+
+    cat(prefix + '94nop_run.template', src)
+
+    template_name = prefix + 'run_'
+    template_name += config.get('94nop MARS', 'process_queue_size')
+    if config.getboolean('94nop MARS', 'interleaved_process_queue'):
+        template_name += '_interleaved_pq'
+    template_name += '.template'
+    cat(template_name, src)
+    
+    cat(prefix + '94nop_loop_start.template', src)
+
+    # run(..)/switch + end of function
+    # Build PQ_NEXT/PQ_APPEND.
+    pq_append = 'PQ_'
+    next_ip = 'PQ_'
+    if config.get('94nop MARS', 'process_queue_size') == 'small':
+        pq_append += 'S'
+        next_ip += 'S'
+    else:
+        pq_append += 'B'
+        next_ip += 'B'
+    if config.getboolean('94nop MARS', 'interleaved_process_queue'):
+        pq_append += 'I_APPEND'
+        next_ip += 'I_NEXT'
+    else:
+        pq_append += 'NI_APPEND'
+        next_ip += 'NI_NEXT'
+
+    # Code for getting IP + create replacement for PQ_APPEND
+    code = '\n' + indent('/* Get instruction pointer. */')
+    code += indent('%s(ip);' % next_ip);
+    src.write(code);
+
+    # Optimized Switch.
+    num_insns = config.getint('94nop MARS', 'number_of_optimized_insns')
+    if num_insns > 0:
+        code = '\n' + indent('/* Optimized instructions. */')
+        code += indent('switch(ip->insn) {')
+        src.write(code)
+        for (opcode, modifier, amode, bmode) in freq[:num_insns]:
+            print '\t\tCreating optimized code for %s.%s %s %s' %\
+                  (opcode, modifier, amode, bmode)
+
+            code = 'case INSN(%s, MODIFIER_%s, %s, %s):' % (opcode.upper(),\
+                   modifier.upper(), MODES[amode], MODES[bmode])
+            code = indent(code)
+            src.write(code)
+
+            if opcode == 'mov':
+                code = optimized_mov(modifier, amode, bmode, config)
+            elif opcode == 'spl':
+                code = optimized_spl(modifier, amode, bmode, config)
+            elif opcode == 'dat':
+                code = optimized_dat(modifier, amode, bmode, config)
+            elif opcode == 'djn':
+                code = optimized_djn(modifier, amode, bmode, config)
+            elif opcode == 'jmp':
+                code = optimized_jmp(modifier, amode, bmode, config)
+            elif opcode == 'add':
+                code = optimized_add(modifier, amode, bmode, config)
+            else:
+                raise NotImplementedError
+            src.write(code)
+
+            code  = '\n' + indent('/* Switch to next warrior. */', 4)
+            code += indent('pqinfo = pqinfo->next;', 4)
+            code += indent('continue;', 4)
+            src.write(code)
+        src.write(indent('}'))
+
+    # Standard switch.
+    template_name  = prefix + '94nop_run_std_switch.template'
+    template = open(os.path.normpath(template_name), 'r')
+    code = template.read().replace('PQ_APPEND', pq_append)
+    template.close()
+    src.write(code)
+
+    # End of function.
+    cat(prefix + 'run_end.template', src)
+
+def create_94nop_p_run(config, prefix, src, freq):
+    """Create p_run(..) in src/BenchMARS94nop.c with the given configuration
+    and output file."""
+
+    cat(prefix + '94nop_p_run.template', src)
+
+    template_name = prefix + 'p_run_'
+    template_name += config.get('94nop MARS', 'process_queue_size')
+    if config.getboolean('94nop MARS', 'interleaved_process_queue'):
+        template_name += '_interleaved_pq'
+    template_name += '.template'
+    cat(template_name, src)
+    
+    cat(prefix + '94nop_loop_start.template', src)
+
+    # run(..)/switch + end of function
+    # Build PQ_NEXT/PQ_APPEND.
+    pq_append = 'PQ_'
+    next_ip = 'PQ_'
+    if config.get('94nop MARS', 'process_queue_size') == 'small':
+        pq_append += 'S'
+        next_ip += 'S'
+    else:
+        pq_append += 'B'
+        next_ip += 'B'
+    if config.getboolean('94nop MARS', 'interleaved_process_queue'):
+        pq_append += 'I_APPEND'
+        next_ip += 'I_NEXT'
+    else:
+        pq_append += 'NI_APPEND'
+        next_ip += 'NI_NEXT'
+
+    # Code for getting IP + create replacement for PQ_APPEND
+    code = '\n' + indent('/* Get instruction pointer. */')
+    code += indent('%s(ip);' % next_ip);
+    src.write(code);
+
+    # Optimized Switch.
+    num_insns = config.getint('94nop MARS', 'number_of_optimized_insns')
+    if num_insns > 0:
+        code = '\n' + indent('/* Optimized instructions. */')
+        code += indent('switch(ip->insn) {')
+        src.write(code)
+        for (opcode, modifier, amode, bmode) in freq[:num_insns]:
+            print '\t\tCreating optimized code for %s.%s %s %s' %\
+                  (opcode, modifier, amode, bmode)
+
+            code = 'case INSN(%s, MODIFIER_%s, %s, %s):' % (opcode.upper(),\
+                   modifier.upper(), MODES[amode], MODES[bmode])
+            code = indent(code)
+            src.write(code)
+
+            if opcode == 'mov':
+                code = optimized_mov(modifier, amode, bmode, config)
+            elif opcode == 'spl':
+                code = optimized_spl(modifier, amode, bmode, config)
+            elif opcode == 'dat':
+                code = optimized_dat(modifier, amode, bmode, config)
+            elif opcode == 'djn':
+                code = optimized_djn(modifier, amode, bmode, config)
+            elif opcode == 'jmp':
+                code = optimized_jmp(modifier, amode, bmode, config)
+            elif opcode == 'add':
+                code = optimized_add(modifier, amode, bmode, config)
+            else:
+                raise NotImplementedError
+            src.write(code)
+
+            code  = '\n' + indent('/* Switch to next warrior. */', 4)
+            code += indent('pqinfo = pqinfo->next;', 4)
+            code += indent('continue;', 4)
+            src.write(code)
+        src.write(indent('}'))
+
+    # Standard switch.
+    template_name  = prefix + '94nop_run_std_switch.template'
+    template = open(os.path.normpath(template_name), 'r')
+    code = template.read().replace('PQ_APPEND', pq_append)
+    template.close()
+    src.write(code)
+
+    # End of function.
+    cat(prefix + 'run_end.template', src)
+
+def create_94nop(config, freq):
+    """Create src/BenchMARS94nop.c with the given configuration."""
+
+    print 'Creating src/BenchMARS94nop.c ...'
+    src = open(os.path.normpath('src/BenchMARS94nop.c'), 'w')
+    prefix = 'Optimization/Templates/'
+
+    cat(prefix + '94nop_header.template', src)
+    print '\tCreating code for function \'run\' ...'
+    create_94nop_run(config, prefix, src, freq)
+    print '\tCreating code for function \'p_run\' ...'
+    create_94nop_p_run(config, prefix, src, freq)
+    #print '\tCreating code for function \'mw_run\' ...'
+    #create_94nop_mw_run(config, prefix, src)
+
+    cat(prefix + '94nop_rest.template', src)
+
+    src.close()
+
+def create_MyTypes(config):
+    """Create src/MyTypes.h with the given configuration."""
+
+    print 'Creating src/MyTypes.h ...'
+    src = open(os.path.normpath('src/MyTypes.h'), 'w')
+    prefix = 'Optimization/Templates/'
+
+    template_name = 'MyTypes_' + config.get('General', 'size_of_field')
+    template_name += '_field.template'
+    cat(prefix + template_name, src)
+
+    src.close()
+
+def read_frequencies(fname):
+    """Read instruction frequencies from file."""
+
+    prefix = 'Optimization/Tables/'
+    if not os.path.exists(prefix + fname):
+        print 'Cannot find %s' % (prefix + fname)
+        sys.exit(1)
+
+    freq = []
+    f = open(prefix + fname, 'r')
+    for line in f:
+        line = line.strip()
+
+        # Ignore comments and empty lines.
+        if line == '' or line.startswith('#'):
+            continue 
+
+        # Strip away leading rank.
+        pos = line.find('. ')
+        if pos == -1:
+            print 'ERROR: Invalid line.'
+            sys.exit(1)
+        line = line[pos + 2:]
+
+        opcode = line[:3]
+        modifier = line[4:6].strip()
+        amode = line[7]
+        bmode = line[9]
+
+        freq.append((opcode, modifier, amode, bmode))
+
+    f.close()
+
+    return freq
+
+if __name__ == '__main__':
+    # Show version information. 
+    print 'Optimizer for PyCorewar %s -' % PYCOREWAR_VERSION,
+    print '(Version %s, %s)\n' % (VERSION, DATE)
+
+    # Check prerequisites for the optimizer.
+
+    # Build and run command line parser.
+    parser = optparse.OptionParser(usage='optimizer [options] ...')
+
+    parser.set_defaults(conf_file='Optimization/default.conf')
+    parser.add_option('-r', '--reset', action='callback', callback=reset,
+                      help='Reset all source files to standard settings')
+    parser.add_option('-c', '--config', action='store', type='string',
+                      dest='conf_file',
+                      help='Use the specified config file '\
+                           '(default=Optimization/default.conf)')
+    (options, args) = parser.parse_args()
+
+    # Run plausibility checks.
+    options.conf_file = os.path.normpath(options.conf_file)
+    if not os.path.exists(options.conf_file):
+        print 'ERROR: Cannot find config file \'%s\'.' % options.conf_file
+        sys.exit(1)
+
+    # Read configuation.
+    print 'Reading configuration from \'%s\' ...' % options.conf_file
+    config = ConfigParser.SafeConfigParser()
+    config.read(options.conf_file)
+
+    # Check configuration and set defaults, if no value is given.
+    if not config.has_section('88 MARS'):
+        print '\tERROR: Missing \'88 MARS\' section.'
+        sys.exit(1)
+    if not config.has_section('94nop MARS'):
+        print '\tERROR: Missing \'94nop MARS\' section.'
+        sys.exit(1)
+
+    # General settings.
+    print 'General settings'
+    print '\tSize of one field                  : %s' %\
+          config.get('General', 'size_of_field')
+
+    # Show settings for 88 MARS.
+    print 'Settings for 88 MARS'
+    print '\tSize of process queue              : %s' %\
+          config.get('88 MARS', 'process_queue_size')
+    print '\tUse interleaved process queue      : %s' %\
+          config.get('88 MARS', 'interleaved_process_queue')
+    print '\tSize of one switch                 : %s' %\
+          config.get('88 MARS', 'size_of_switch')
+    print '\tNumber of switches                 : %d' %\
+          config.getint('88 MARS', 'number_of_switches')
+
+    # Show setting for 94nop MARS.
+    print 'Settings for 94nop MARS'
+    print '\tSize of process queue              : %s' %\
+          config.get('94nop MARS', 'process_queue_size')
+    print '\tUse interleaved process queue      : %s' %\
+          config.get('94nop MARS', 'interleaved_process_queue')
+    print '\tFile with instruction frequencies  : Optimization/Tables/%s' %\
+          config.get('94nop MARS', 'insn_frequencies')
+    print '\tNumber of optimized instructions   : %d' %\
+          config.getint('94nop MARS', 'number_of_optimized_insns')
+
+    # Reading instruction frequencies.
+    print 'Reading instruction frequencies ...'
+    fname = config.get('94nop MARS', 'insn_frequencies')
+    insn_freq_94nop = read_frequencies(fname)
+
+    # Create src/MyTypes.h
+    create_MyTypes(config)
+
+    # Create src/BenchMARS88.c
+    create_88(config)
+
+    # Create src/BenchMARS94nop.c
+    create_94nop(config, insn_freq_94nop)

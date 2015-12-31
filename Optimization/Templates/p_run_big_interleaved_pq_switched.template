@@ -1,0 +1,62 @@
+	u32_t round; 		/* Number of the current round. */
+	u64_t *results; 	/* List with the results, format: w l t. */
+	u64_t insn_counter = 0; /* Counter of executed instructions. */
+	u32_t cycle; 		/* Number of current cycle. */
+	insn_t **pqueue; 	/* Memory for the process queues. */
+
+	/* Pointer to end of core. */
+	insn_t *core_end = core + coresize;
+
+	/* Allocate memory for the process queues. */
+	pqueue = calloc(2 * (maxcycles + maxprocesses), sizeof(insn_t *));
+
+	/* Allocate and initialized memory for results. */
+	results = calloc(4, sizeof(u64_t));
+
+	/* Check allocated memory. */
+	if ((pqueue == NULL) | (results == NULL)) {
+		free (results);
+		free (pqueue);
+		return NULL;
+	}
+
+	/* Run the given number of rounds. */
+	for (round = 0; round < 2 * (coresize-2*mindistance+1); round++) {
+		/* One head is enough, because both processes queues are
+		 * interleaved. */
+		insn_t **head;
+		
+		insn_t **tail1;
+		insn_t **tail2;
+
+		u32_t numprocesses1;
+		u32_t numprocesses2;
+
+		/* Calculate position of second warrior. */
+		u32_t pos2 = mindistance + round/2;
+		
+		/* Set up core. */
+		memset(core, 0, coresize * sizeof(insn_t));
+
+		/* Load warriors. */
+		memcpy(core, warriors[0].insns,
+		       warriors[0].length * sizeof(insn_t));
+		memcpy(core + pos2, warriors[1].insns,
+		       warriors[1].length * sizeof(insn_t));
+
+		/* Set execution order and initialize both process queues. */
+		if (round % 2 == 0) {
+			pqueue[0] = core + warriors[0].start;
+			tail1 = pqueue + 2;
+
+			pqueue[1] = core + pos2 + warriors[1].start;
+			tail2 = pqueue + 3;
+		} else {
+			pqueue[1] = core + warriors[0].start;
+			tail2 = pqueue + 3;
+
+			pqueue[0] = core + pos2 + warriors[1].start;
+			tail1 = pqueue + 2;
+		}
+		numprocesses1 = numprocesses2 = 1;
+		head = pqueue;

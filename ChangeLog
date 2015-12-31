@@ -1,0 +1,310 @@
+Mon Jun 19, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Released version 0.2.0.28.
+
+	* optimizer: Added routines for generating code for p_run for the
+	94nop-MARS.
+
+Sat Jun 17, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* corewar/__init__.py: Changed string representation of warrior to
+	produce parsable Redcode.
+
+	* src/Redcodemodule.c: Bugfix in fromString when dealing with opcode
+	MOD (previously stored as MOV). Added missing break to code for
+	checking adherence to ICWS '88 rules.
+
+	* corewar/__init__.py: SimpleParser seems to work now. Still needs
+	some extensive testing.
+
+Thu Jun  8, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* corewar/__init__.py: Started to implement parser for load files.
+
+Tue Jun  6, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* testsuite: Added test for Corewar.Redcode.fromString
+
+	* src/Redcodemodule.c: Added method fromString to module.
+
+Fri Jun  2, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Optimization/Tables/tiny: Added table for instruction frequencies
+	with tiny settings.
+
+Thu Jun  1, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Optimization/Tables/94nop: Updated table.
+
+Tue May 30, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* optimizer: Added partial support for generating optimized code for
+	instructions.
+
+Mon May 29, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* optimizer: The size of field_t can now be chosen (2 or 4 bytes).
+
+Sun May 28, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Released version 0.2.0.27.
+
+	* src/Redcodemodule.c: Added pickle support for
+	Corewar.Redcode.Instruction.
+
+	* src/Benchmarkingmodule.c: Instructions are now directly copied as
+	insn_t.
+
+	* benchmark: Moved Benchmarks/benchmark to main directory, because
+	it is used very often. Adjusted some paths inside the script.
+
+	* optimizer: Generation of code for 94nop works again, but still no
+	code for special optimized instructions.
+
+Sat May 27, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* src/Redcodemodule.c: Started to add pickle support for
+	Corewar.Redcode.Instruction.
+
+Fri May 26, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* src/Benchmarkingmodule.c: Now an exception is thrown, if an
+	invalid instruction is executed.
+
+	* Benchmarks/{pmars,exmars]_benchmark: Added benchmarks for pMARS
+	and exmars.
+
+Wed May 24, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Released version 0.2.0.26.
+
+	* corewar/__init__.py: Set max. supported coresize to 1000000000.
+
+	* src/Redcodemodule.c: Added pickled support to Instruction88.
+
+Mon May 22, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Benchmarks/benchmark: Added output of standard deviation of the
+	single fight speeds.
+
+	* src/Redcodemodule.c: Extended documentation strings for
+	Corewar.Instruction88. Added support for buffer protocol to simplify
+	accessing insn.
+
+	* testsuite: Added tests for Corewar.Redcode.Instruction88.
+
+Thu May 18, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* testsuite: Added a test fight for the 88 MARS.
+
+	* Released version 0.2.0.25.
+
+	* optimizer: Decided not to use interleaved process queues for mw_run,
+	because the improvement should be very small.
+
+	* examples/pymars: Fixed a bug when displaying multiwarrior results.
+
+	* Optimization/Templates/*: Finally found bug in mw_run(..) and changed
+	all templates to fix it.
+
+Tue May 16, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* testsuite: Started to rewrite the complete testsuite. Added basic
+	tests for Corewar.Benchmarking.MARS_88.
+
+Mon May 15, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Released version 0.2.0.24.
+
+	* optimizer: Code for 88 MARS/mw_run(..) is now compilable, but not
+	yet usable.
+
+Sat May 13, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Benchmarks/benchmark: Added possibility to store speeds and compare
+	with stored data.
+
+Fri May 12, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Benchmarks/*: Removed old data.
+
+Wed May 10, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* optimizer: Code generation for mw_run(..) seems to work now, but
+	some template are still missing
+
+Mon May  8, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Released version 0.2.0.23.
+
+	* optimizer: Fixed a small bug, which appeared when using big process
+	queues. Finally added code to generate p_run(..), which is only a
+	slight variation of the code, which generates run(..). Still no code
+	for mw_run(..)
+
+	* Optimization/default.conf: Included comment about which methods
+	are created during code generation.
+
+Fri May  5, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Released version 0.2.0.22.
+
+	* optimizer, Optimization/Template/*: Started to rewrite the optimizer
+	to make it easier to maintain and implement newer ideas. Only run(..)
+	for the 88 MARS works at the moment.
+
+Thu May  4, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Released version 0.2.0.21.
+
+	* optimizer: Added the possibility to use multiple switches in
+	the 94nop MARS. It seems to be more complicated than the 88 MARS.
+	Time to reimplement the optimizer.
+
+Tue May  2, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Released version 0.2.0.20.
+
+	* optimizer: Added the possibility to use the original switch
+	in both the usual and the multi-switch versions of the 88 MARS.
+	With certain settings the 88 MARS now is faster than fmars.
+
+Mon May  1, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Released version 0.2.0.19.
+
+	* optimizer: It is possible to create multi-switch versions for
+	the 88 MARS. About 10 - 20 % speedup. This should be implemented
+	for the 94nop MARS as soon as possible, too. Idea and most of
+	the code for the templates by Sascha Zapf.
+
+Wed Apr 25, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Released version 0.2.0.18.
+
+	* src/: Temporarily removed all files related to Corewar.Debugging,
+	because they are not used and maintained at the moment.
+
+	* src/BenchWarrior.[c|h]: Removed function load_warrior. Function
+	is replaced everywhere by memcpy.
+
+	* Optimization/Templates/BenchProcessQueue.h: Added macros for
+	handling partially unrolled loops.
+
+Tue Apr 25, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* optimizer: Reworked the complete optimizer to support selection
+	between small and big and interleaved and non-interleaved process
+	queue. The use of many templates seems to make things more easier.
+
+Sun Apr 23, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Released version 0.2.0.17.
+
+	* src/BenchMARS88.c/run(..): Replaced version with Sascha Zapf's
+	double switch. That version is 10 % faster than the old one and
+	still lacks some of the recent improvements!
+
+	* optimizer: Now supports the selection of big or "small" process
+	queue.
+
+Sat Apr 22, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* src/BenchMARS94nop.c/run(..): Interleaving the processes queues
+	seems to work better. Time to implement that for the optimizer.
+
+Thu Apr 20, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Optimization/Templates/BenchMARS94nop.template: Reincluded faster
+	handling of A- and B-modes.
+
+	* Benchmarks/benchmark: Included benchmark for LP settings. Increased
+	version number of 0.7.0.
+
+	* src/BenchMARS88.c/run(..): Rearranged some cases to make them
+	overlap and produce less code.
+
+Mon Apr 17, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Benchmarks/benchmark: Added the possibility run several rounds of
+	the benchmark to get information about min./max./avg. speed.
+	Modifications were kindly provided by Sascha Zapf.
+
+	* optimizer: Optimizer now generates optimized code for JMP and ADD,
+	too.
+
+	* src/BenchMacros.h: Changed macros ADDMOD, SUBMOD to no longer
+	require 'coresize' as argument.
+
+Sun Apr 16, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* optimizer: Optimizer now generates optimized code for DAT, SPL
+	and MOV.
+
+Tue Apr 13, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Benchmarks/benchmark: Upgraded to version 0.5.4. Now it supports
+	exhaust, exhaust-ma (again) and fmars (new).
+
+	* optimizer: Optimizer now actually creates code. Started to replace
+	macros with actual code, which should it make easier to optimize the
+	code later.
+
+Tue Apr 11, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* src/BenchMARS94nop.c:  Added and removed several optimized routines
+	to give a better covering of the most commonly executed instruction.
+	Speed for tiny and 94nop increased by about 10 %.
+
+	* Benchmarks/benchmark: Upgraded to version 0.5.1.
+
+	* Benchmarks/benchmark: Running benchmark with pMARS works agin.
+
+Mon Apr 10, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* src/BenchMARS88.c: Changed run(..) to support counting of executed
+	instructions.
+
+	* src/Benchmarkingmodule.c: Changed MARS_88_run(..) to support counting
+	of executed instructions.
+
+	* src/OptMARS94nop.c, src/OptMARS94nop.h, src/Optimizingmodule.c:
+	New file. Implemented counting of the different instructions.
+
+Sun Apr  9, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* optimizer: Version 0.0.1 of the code generator for PyCorewar.
+	
+	* src/BenchMARS94nop.c: Remove optimized code for mw_run(..). It
+	is still buggy wll soon be automatically generated. The main reason
+	to remove it is to save compile time.
+
+Sat Apr  8, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* src/BenchMARS94nop.c: Inserted mov.i } > and mov.i { < again.
+	They have been accidentally deleted.
+
+Fri Apr  7, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* src/BenchMARS94nop.c: Changed evaluation of A- and B-operand
+	to match the behaviour of pMARS.
+
+Mon Apr  3, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* src/BenchMARS94nop.c (run(...)): Added counting of executed
+	instructions.
+
+	* src/Benchmarkingmodule.c: run(...) now returns the number of
+	executed instructions.
+
+Fri Feb 24, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* corewar/__init__.py (class Parser): Extended parser to support
+	FOR/ROF-loops and EQUs.
+
+	* corewar/__init__.py (class Warrior): Changed string representation
+	of warrior to resemble more pMARS'
+
+Sun Jan  1, 2006  Jens Gutzeit <jens@jgutzeit.de>
+
+	* Version 0.1.0 released.

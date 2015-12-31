@@ -1,0 +1,8 @@
+
+/* Run a two warrior fight with all possible start positions. Parameters
+ * are NOT checked for plausibility! Return the result after the fights
+ * or NULL on error. */
+u64_t *
+p_run_88(insn_t *core, warrior_t *warriors, u32_t coresize, u32_t maxprocesses,
+       u32_t maxcycles, u32_t mindistance)
+{

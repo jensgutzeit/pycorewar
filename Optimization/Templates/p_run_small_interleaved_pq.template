@@ -1,0 +1,76 @@
+	u32_t round; 		/* Number of the current round. */
+	u64_t *results; 	/* List with the results, format: w l t. */
+	u64_t insn_counter = 0; /* Counter of executed instructions. */
+	u32_t cycle; 		/* Number of current cycle. */
+	pq_info_t pq_info1; 	/* Information about processes queue of the
+				 * first warrior. */
+	pq_info_t pq_info2; 	/* Information about processes queue of the
+				 * second warrior. */
+	pq_info_t *pqinfo;
+	insn_t **pqueue; 	/* Memory for the process queues. */
+	insn_t **pqueue_end;	/* Pointer to end of processes queue. */
+
+	/* Pointer to end of core. */
+	insn_t *core_end = core + coresize;
+
+	/* Allocate memory for the process queues. */
+	pqueue = calloc(2 * maxprocesses + 2, sizeof(insn_t *));
+
+	/* Allocate and initialized memory for results. */
+	results = calloc(4, sizeof(u64_t));
+
+	/* Check allocated memory. */
+	if ((pqueue == NULL) | (results == NULL)) {
+		free (results);
+		free (pqueue);
+		return NULL;
+	}
+
+	/* Initialize end of processes queue. */
+	pqueue_end = pqueue + 2 * maxprocesses + 2;
+
+	/* No need to use field 'prev'. */
+	pq_info1.next = &pq_info2;
+	pq_info2.next = &pq_info1;
+
+	/* Run the given number of rounds. */
+	for (round = 0; round < 2 * (coresize-2*mindistance+1); round++) { 
+		/* One head is enough, because both processes queues are
+		 * interleaved. */
+		insn_t **head;
+
+		/* Calculate position of second warrior. */
+		u32_t pos2 = mindistance + round/2;
+		
+		/* Set up core. */
+		memset(core, 0, coresize * sizeof(insn_t));
+
+		/* Load warriors. */
+		memcpy(core, warriors[0].insns,
+		       warriors[0].length * sizeof(insn_t));
+		memcpy(core + pos2, warriors[1].insns,
+		       warriors[1].length * sizeof(insn_t));
+
+		/* Set execution order and initialize both process queues. */
+		if (round % 2 == 0) {
+			pqueue[0] = core + warriors[0].start;
+			pq_info1.tail = pqueue + 2;
+			pq_info1.numprocesses = 1;
+
+			pqueue[1] = core + pos2 + warriors[1].start;
+			pq_info2.tail = pqueue + 3;
+			pq_info2.numprocesses = 1;
+
+			pqinfo = &pq_info1;
+		} else {
+			pqueue[1] = core + warriors[0].start;
+			pq_info1.tail = pqueue + 3;
+			pq_info1.numprocesses = 1;
+
+			pqueue[0] = core + pos2 + warriors[1].start;
+			pq_info2.tail = pqueue + 2;
+			pq_info2.numprocesses = 1;
+
+			pqinfo = &pq_info2;
+		}
+		head = pqueue;

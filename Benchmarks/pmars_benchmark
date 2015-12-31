@@ -1,0 +1,353 @@
+#!/usr/bin/python
+#
+# pmars_benchmark - Benchmark for pMARS
+#
+# ATTENTION! This is not a real benchmark. Its purpose is to make different
+# versions of PyCorewar comparable, but not to give an absolute measure for
+# the speed of the MARS.
+#
+# Copyright (C) 2006 Jens Gutzeit <jens@jgutzeit.de>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+
+import sys, os, time, optparse
+import Corewar, Corewar.Benchmarking
+from math import sqrt
+
+VERSION = '1.0.0'
+DATE = 'Fri May 26 11:07:19 UTC 2006'
+
+def get_results(benchmark, rounds):
+    """Read in precomputed results from results.*"""
+
+    if benchmark not in ('88', '94nop', 'tiny', 'lp'):
+        raise ValueError, 'get_results(..): Unknown benchmark %s' % benchmark
+    if rounds not in (100, 1000, 2500, 5000, 10000):
+        raise ValueError, 'get_results(..): Invalid number of rounds: %d' %\
+                          rounds
+
+    # Read file and parse data.
+    fname = 'results/results.%s' % benchmark
+    data = []
+    f = open(fname, 'r')
+    for i in xrange(50):
+        (w1, w2) = f.readline().strip().split(' ')
+        seed = int(f.readline().strip())
+        if rounds > 100:
+            f.readline()
+        if rounds > 1000:
+            f.readline()
+        if rounds > 2500:
+            f.readline()
+        if rounds > 5000:
+            f.readline()
+        (w, l, t, num_insns) = map(int, f.readline().strip().split(' '))
+        data.append([w1, w2, seed, w, l, t, num_insns])
+        if rounds == 100:
+            f.readline()
+            f.readline()
+            f.readline()
+            f.readline()
+        elif rounds == 1000:
+            f.readline()
+            f.readline()
+            f.readline()
+        elif rounds == 2500:
+            f.readline()
+            f.readline()
+        elif rounds == 5000:
+            f.readline()
+
+    f.close()
+
+    return data
+
+def run_benchmark(benchmark, rounds, coresize, maxprocesses, maxcycles,
+                  maxlength, mindistance, data, path, verbose, comp_speeds):
+    """Run benchmark with pMARS."""
+
+    if benchmark == '88':
+        parser = Corewar.Parser(coresize=coresize, maxprocesses=maxprocesses,
+                                maxcycles=maxcycles, maxlength=maxlength,
+                                mindistance=mindistance,
+                                standard=Corewar.STANDARD_88)
+    else:
+        parser = Corewar.Parser(coresize=coresize, maxprocesses=maxprocesses,
+                                maxcycles=maxcycles, maxlength=maxlength,
+                                mindistance=mindistance,
+                                standard=Corewar.STANDARD_94_NOP)
+
+    # Intialize all values.
+    speed_list = []
+    directory = 'warriors/%s/' % benchmark
+
+    # Benchmark all warriors.
+    num_fight = 0
+    for (w1src, w2src, seed, w, l, t, num_insns) in data:
+        # Parse warriors.
+        try:
+            w1 = parser.parse_file(directory + w1src)
+            w2 = parser.parse_file(directory + w2src)
+        except:
+            print 'Could not parse warriors (%s, %s).' % (w1src, w2src)
+            continue
+
+        # Buld command.
+        if benchmark == '88':
+            cmd_line = '%s -b -8 -r %d -F %d %s %s' %\
+                       (path, rounds, seed, directory + w1src,\
+                        directory + w2src)
+        else:
+            cmd_line = '%s -b -r %d -F %d -s %d -p %d -c %d -l %d -d %d %s %s'\
+                       % (path, rounds, seed, coresize, maxprocesses,\
+                          maxcycles, maxlength, mindistance,\
+                          directory + w1src, directory + w2src)
+
+        # Run fight.
+        start_time = time.time()
+        child_in, child_out = os.popen2(cmd_line)
+        output = child_out.readlines()
+        child_out.close()
+        child_in.close()
+        diff_time = time.time() - start_time
+        speed = num_insns/diff_time/1000000
+
+        # Parse output of pMARS.
+        results = output[2].split(' ')
+        pmars_w = int(results[1])
+        pmars_l = int(results[2])
+        pmars_t = rounds - pmars_w - pmars_l
+        results = [pmars_w, pmars_l, pmars_t]
+
+        # Check result.
+        if not results == [w, l, t]:
+            print 'Got invalid result for %s vs. %s.' % (w1.name, w2.name)
+            print 'Expected: ', [w, l, t]
+            print 'Got     : ', results
+
+        if verbose:
+            # Print speed for current fight.
+            tmp = '%s vs. %s' % (w1.name, w2.name)
+            while len(tmp) < 45:
+                tmp += ' '
+            if comp_speeds == []:
+                print '%s: %9.4f MIPS' % (tmp, speed)
+            else:
+                diff = speed - comp_speeds[num_fight]
+                num_fight += 1
+                print '%s: %9.4f MIPS (%+9.4f MIPS)' % (tmp, speed, diff) 
+
+        # Save speed in list.
+        speed_list.append(speed)
+
+    return speed_list
+
+if __name__ == '__main__':
+    print 'Bogus Benchmark for pMARS, version %s (%s)\n' % (VERSION, DATE)
+
+    # Parse command line.
+    parser = optparse.OptionParser()
+    parser.set_defaults(rounds=1000, benchmark='94nop', times=1,
+                        verbose=True, logfile=None, compfile=None, path=None)
+    parser.add_option('-r', '--rounds', action='store', type='int',
+                      dest='rounds',
+                      help='number of rounds (100, 1000, 2500, 5000 or 10000)')
+    parser.add_option('-b', '--benchmark', action='store', type='string',
+                      dest='benchmark',
+                      help='select benchmark (88, 94nop, lp, tiny)')
+    parser.add_option('-t', '--times', action='store', type='int',
+                      dest='times',
+                      help='run the benchmark several times')
+    parser.add_option('-q', '--quiet', action='store_false', dest='verbose',\
+                      help='print only minimal information')
+    parser.add_option('-l', '--log', action='store', type='string',
+                      dest='logfile',
+                      help='save benchmark data to a file')
+    parser.add_option('-c', '--compare', action='store', type='string',
+                      dest='compfile',
+                      help='compare benchmark to saved data')
+    parser.add_option('-p', '--path', action='store', type='string',
+                      dest='path',
+                      help='path to pMARS executable')
+
+    (options, args) = parser.parse_args()
+
+    # Plausibility checks.
+    if options.rounds not in (100, 1000, 2500, 5000, 10000):
+        print 'Invalid number of rounds: %d' % option.rounds
+        print 'Only 100, 1000, 2500, 5000 or 10000 are allowed!'
+        sys.exit(1)
+    if options.benchmark not in ('88', 'tiny', '94nop', 'lp'):
+        print 'Invalid benchmark: %s' % options.benchmark
+        print 'Only \'88\', \'94nop\', \'tiny\' and \'lp\' are supported '\
+              'at the moment.'
+        sys.exit(1)
+    if options.logfile and options.compfile:
+        if options.logfile == options.compfile:
+            print 'Cannot use the same file for logging and comparing.'
+            sys.exit(1)
+    if options.compfile and not os.path.exists(options.compfile):
+        print 'File \'%s\' does not exist.' % options.compfile
+        sys.exit(1)
+    if options.path == None:
+        print 'Missing path for pMARS executable.'
+        sys.exit(1)
+    if not os.path.exists(options.path):
+        print 'Cannot find \'%s\'.' % options.path
+        sys.exit(1)
+
+    # Read data for comparison.
+    comp_speeds = []
+    if options.compfile:
+        f = open(options.compfile, 'r')
+        benchmark = f.readline()[11:].strip()
+        if not options.benchmark == benchmark:
+            print 'Use are using the \'%s\' benchmark, but stored data '\
+                  'is for \'%s\'!' % (options.benchmark, benchmark)
+            f.close()
+            sys.exit(1)
+        rounds = int(f.readline()[11:].strip())
+        if not options.rounds == rounds:
+            print 'WARNING: Stored data is for %d rounds!\n' % rounds
+        for line in f:
+            comp_speeds.append(float(line.strip()))
+        f.close()
+
+        comp_min_speed = min(comp_speeds)
+        comp_max_speed = max(comp_speeds)
+        comp_avg_speed = reduce(lambda x, y: x+y, comp_speeds)/len(comp_speeds)
+
+    # Set required information to run benchmark.
+    data = get_results(options.benchmark, options.rounds)
+    if options.benchmark == '94nop':
+        coresize = 8000
+        maxprocesses = 8000
+        maxcycles = 80000
+        maxlength = 100
+        mindistance = 100
+    elif options.benchmark == '88':
+        coresize = 8000
+        maxprocesses = 8000
+        maxcycles = 80000
+        maxlength = 100
+        mindistance = 100
+    elif options.benchmark == 'tiny':
+        coresize = 800
+        maxprocesses = 800
+        maxcycles = 8000
+        maxlength = 20
+        mindistance = 20
+    elif options.benchmark == 'lp':
+        coresize = 8000
+        maxprocesses = 8
+        maxcycles = 80000
+        maxlength = 200
+        mindistance = 200
+
+    # Show information about benchmark.
+    if options.verbose:
+        if options.times == 1:
+            print 'Running benchmark \'%s\' with %d rounds each fight.' %\
+                  (options.benchmark, options.rounds)
+        else:
+            print 'Running benchmark \'%s\' %d times with %d rounds each '\
+                  'fight.' % (options.benchmark, options.times, options.rounds)
+        print
+
+    # Run benchmark.
+    sum_speed = 0.0
+    min_speed = 10000000000.0
+    max_speed = 0.0
+    avg_speed_list = [0.0,] * 50
+    for benchmark_round in xrange(options.times):
+        speed_list = run_benchmark(options.benchmark, options.rounds, coresize,
+                                   maxprocesses, maxcycles, maxlength,
+                                   mindistance, data, options.path,
+                                   options.verbose, comp_speeds)
+        
+        for i in xrange(50):
+            avg_speed_list[i] += speed_list[i]
+
+        # Calculate some interesting values.
+        sum_speed += reduce(lambda x, y: x + y, speed_list) / len(speed_list)
+        min_speed = min(avg_speed_list) / (benchmark_round + 1)
+        max_speed = max(avg_speed_list) / (benchmark_round + 1)
+
+        avg_speed = sum_speed / (benchmark_round + 1)
+
+        rms = 0.0
+        for i in xrange(50):
+            tmp = avg_speed_list[i] / (benchmark_round + 1) - avg_speed
+            rms += tmp * tmp
+        rms = sqrt(rms/49)
+
+        if options.verbose:
+            if comp_speeds == []:
+                print
+                print 'Min. speed\t\t\t\t     : %9.4f MIPS' % min_speed
+                print 'Avg. speed\t\t\t\t     : %9.4f MIPS' % avg_speed
+                print 'Max. speed\t\t\t\t     : %9.4f MIPS' % max_speed
+                print 'Std. dev  \t\t\t\t     : %9.4f MIPS' % rms
+                print
+            else:
+                print
+                diff = min_speed - comp_min_speed
+                print 'Min. speed\t\t\t\t     : %9.4f MIPS (%+9.4f MIPS)' %\
+                      (min_speed, diff)
+                diff = avg_speed - comp_avg_speed
+                print 'Avg. speed\t\t\t\t     : %9.4f MIPS (%+9.4f MIPS)' %\
+                      (avg_speed, diff)
+                diff = max_speed - comp_max_speed
+                print 'Max. speed\t\t\t\t     : %9.4f MIPS (%+9.4f MIPS)' %\
+                      (max_speed, diff)
+                print
+
+    # Calculate speed for every benchmark.
+    for i in xrange(50):
+        avg_speed_list[i] /= options.times        
+
+    if not options.verbose:
+        if comp_speeds == []:
+            print
+            print 'Min. speed\t\t\t\t     : %9.4f MIPS' % min_speed
+            print 'Avg. speed\t\t\t\t     : %9.4f MIPS' % avg_speed
+            print 'Max. speed\t\t\t\t     : %9.4f MIPS' % max_speed
+            print
+        else:
+            print
+            diff = min_speed - comp_min_speed
+            print 'Min. speed\t\t\t\t     : %9.4f MIPS (%+9.4f MIPS)' %\
+                  (min_speed, diff)
+            diff = avg_speed - comp_avg_speed
+            print 'Avg. speed\t\t\t\t     : %9.4f MIPS (%+9.4f MIPS)' %\
+                  (avg_speed, diff)
+            diff = max_speed - comp_max_speed
+            print 'Max. speed\t\t\t\t     : %9.4f MIPS (%+9.4f MIPS)' %\
+                  (max_speed, diff)
+            print
+
+    # Save data to logfile.
+    if options.logfile:
+        try:
+            f = open(options.logfile, 'w')
+        except:
+            print 'Could not create logfile.'
+            sys.exit(1)
+
+        f.write('Benchmark: %s\n' % options.benchmark)
+        f.write('Rounds   : %d\n' % options.rounds)
+        for speed in avg_speed_list:
+            f.write(str(speed) + '\n')
+        f.close()

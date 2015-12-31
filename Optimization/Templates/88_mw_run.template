@@ -1,0 +1,8 @@
+
+/* Run a multiwarrior fight. Parameters are NOT checked for plausibility!
+ * Return the result after the fights or NULL on error. */
+u64_t *
+mw_run_88(insn_t *core, u32_t numwarriors, warrior_t *warriors, u32_t coresize,
+	  u32_t maxprocesses, u32_t maxcycles, u32_t mindistance,
+	  u32_t numrounds, u32_t seed)
+{

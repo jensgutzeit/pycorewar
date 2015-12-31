@@ -1,0 +1,7 @@
+
+u64_t *mw_run_94nop(insn_t *core, u32_t numwarriors, warrior_t *warriors,
+	            u32_t coresize, u32_t maxprocesses, u32_t maxcycles,
+	            u32_t mindistance, u32_t numrounds, u32_t seed)
+{
+	return NULL;
+}

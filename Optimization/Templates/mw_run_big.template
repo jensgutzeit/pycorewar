@@ -1,0 +1,79 @@
+	u32_t round; 		/* Number of the current round. */
+	u64_t *results; 	/* List with the results, format: w l t. */
+	u64_t insn_counter = 0; /* Counter of executed instructions. */
+	u32_t *positions; 	/* Position of all warriors in the core. */
+	u32_t numalive;		/* Number of currently living warriors. */
+	u32_t cycle; 		/* Number of current cycle. */
+	pq_info_t *pq_infos; 	/* Information about processes queue of
+				 * all warriors. */
+	pq_info_t *pqinfo;
+	insn_t **pqueue; 	/* Memory for the process queues. */
+	u32_t i;
+	u32_t adj;
+
+	/* Pointer to end of core. */
+	insn_t *core_end = core + coresize;
+
+	/* Allocate memory for the process queues. */
+	pqueue = calloc(numwarriors * (maxcycles + maxprocesses),
+			sizeof(insn_t *));
+
+	/* Allocate memory for information about the process queues. */
+	pq_infos = calloc(numwarriors, sizeof(pq_info_t));
+
+	/* Allocate and initialized memory for results. */
+	results = calloc(numwarriors * (numwarriors + 1) + 1, sizeof(u64_t));
+
+	/* Allocate memory for positions of all warriors. */
+	positions = calloc(numwarriors, sizeof(s32_t));
+
+	/* Check allocated memory. */
+	if ((pqueue == NULL) | (pq_infos == NULL) | (results == NULL)) {
+		free(positions);
+		free(results);
+		free(pq_infos);
+		free(pqueue);
+		return NULL;
+	}
+
+	/* Adjust seed to make the second warrior be at position seed in
+	 * the first round. */
+	seed -= mindistance;
+
+	/* "First" warrior is always at positions 0. */
+	positions[0] = 0;
+
+	/* Run the given number of rounds. */
+	for (round = 0; round < numrounds; round++) {
+		/* Calculate positions of remaining warriors. */
+		if (calc_pos(positions, numwarriors, coresize, mindistance,
+			     &seed)) {
+			calc_pos_backup(positions, numwarriors, coresize,
+					mindistance, &seed);
+		}
+	
+		/* Set up core. */
+		memset(core, 0, coresize * sizeof(insn_t));
+
+		/* Load warriors into core and setup all process queues. */
+		insn_t **tmp_pqueue = pqueue;
+		for (i = 0; i < numwarriors; i++) {
+			/* Load warrior. */
+			memcpy(core + positions[i], warriors[i].insns,
+			       warriors[i].length * sizeof(insn_t));
+
+			/* Set up process queue. */
+			*tmp_pqueue = core + positions[i] + warriors[i].start;
+			pq_infos[i].head = tmp_pqueue;
+			pq_infos[i].tail = tmp_pqueue + 1;
+			pq_infos[i].numprocesses = 1;
+
+			/* Set next and previous warrior. */
+			pq_infos[i].next = &pq_infos[(i + 1) % numwarriors];
+			pq_infos[i].prev = &pq_infos[(i + numwarriors - 1) %
+						     numwarriors];
+			tmp_pqueue += maxprocesses + 1;
+		}
+
+		/* Set first warrior to execute. */
+		pqinfo = &pq_infos[round % numwarriors];

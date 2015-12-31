@@ -1,0 +1,308 @@
+#!/usr/bin/python
+#
+# Dodo Evolver - A evolver for the nano hill
+#
+# Copyright (C) 2006 Jens Gutzeit <jens@jgutzeit.de>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+
+import sys, os.path, optparse, time, random, md5
+import Corewar
+from Corewar.Redcode import *
+import Corewar.Benchmarking
+
+# Program information.
+VERSION = '0.1.0'
+DATE = 'Tue Jun  6 13:09:32 UTC 2006'
+
+# Opcodes to use for evolution and seeding.
+OPCODES = (OPCODE_DAT, OPCODE_MOV, OPCODE_ADD, OPCODE_SUB, OPCODE_JMP,
+           OPCODE_JMZ, OPCODE_JMN, OPCODE_DJN, OPCODE_SPL)
+
+# Instruction modifiers to use for evolution and seeding.
+MODIFIERS = (MODIFIER_A, MODIFIER_B, MODIFIER_F, MODIFIER_I, MODIFIER_X,
+             MODIFIER_AB, MODIFIER_BA)
+
+# Modes to use for evolution and seeding.
+MODES = (MODE_DIRECT, MODE_IMMEDIATE, MODE_A_INDIRECT, MODE_A_PREDECREMENT,
+         MODE_A_POSTINCREMENT, MODE_B_INDIRECT, MODE_B_PREDECREMENT,
+         MODE_B_POSTINCREMENT)
+
+def save(warrior, directory, id):
+    """Save a warrior in the given directory as 'dodo_id.red'."""
+
+    code = str(warrior)
+    code = code[code.find('ORG      START') + 15:]
+    hash = md5.new(code).hexdigest()
+
+    header  = ';redcode-nano\n;name Dodo %s\n' % hash
+    header += ';strategy Evolved with the Dodo Evolver %s\n' % VERSION
+    header += ';assert CORESIZE == 80\n\n'
+    header += '       ORG      START\n'
+
+    f = open('%s/dodo_%s.red' % (directory, str(id).zfill(6)), 'w')
+    f.write(header + code)
+    f.close()
+
+def seed(directory, num_warriors):
+    """Seed directory with the given number of nano warriors. Make sure, that
+    the generated warriors do not suicide."""
+
+    # Create a 'jmp # 0, $ 0' warrior to benchmark against
+    sitting_duck = Corewar.Warrior(coresize=80,
+                                   standard=Corewar.STANDARD_94_NOP)
+    insn = Instruction(coresize=80)
+    insn.opcode = OPCODE_JMP
+    insn.amode = MODE_IMMEDIATE
+    sitting_duck.instructions.append(insn)
+
+    cur_num_warriors = 0
+    while cur_num_warriors < num_warriors:
+        warrior = Corewar.Warrior(coresize=80,
+                                  standard=Corewar.STANDARD_94_NOP)
+
+        # Create random instructions.
+        for i in xrange(5):
+            insn = Instruction(coresize=80)
+            insn.opcode = random.choice(OPCODES)
+            insn.modifier = random.choice(MODIFIERS)
+            insn.amode = random.choice(MODES)
+            insn.afield = random.randint(0, 79)
+            insn.bmode = random.choice(MODES)
+            insn.bfield = random.randint(0, 79)
+            warrior.instructions.append(insn)
+        
+        # Test all start instructions and choose first "working" one.
+        for start in xrange(5):
+            warrior.start = start
+            result = mars.run((warrior, sitting_duck), 1)
+            
+            # Condition: We tie at least against Sitting duck or more than
+            #            300 instructions were executed.
+            score = 3 * result[0][0] + result[0][2]
+            if score > 0 or result[-1] >= 300:
+                save(warrior, directory, cur_num_warriors)                
+                cur_num_warriors += 1
+                break
+
+def create_initial_hill(warriors, verbose):
+    """Create initial hill by benchmarking all warriors and taking the
+    20 best ones."""
+
+    scores = []
+    for i in xrange(len(warriors)):
+        scores.append([0, 0, 0])
+    num_insns = 0
+    start_time = time.time()
+    for i in xrange(len(warriors)):
+        for j in xrange(i, len(warriors)):
+            res = mars.run((warriors[i], warriors[j]), 200, 474747)
+            for k in xrange(3):
+                scores[i][k] += res[0][k]
+                scores[j][k] += res[1][k]
+            num_insns += res[-1]
+    diff_time = time.time() - start_time
+    speed = num_insns/(diff_time * 1000000)
+
+    hill = []
+    for i in xrange(len(warriors)):
+        (w, l, t) = scores[i]
+        score = 3 * w + t
+        hill.append((score, i))
+    hill.sort()
+    hill.reverse()
+
+    return hill
+
+def create_new_warrior(w1, w2):
+    """Create new warrior from the given ones."""
+
+    warrior = Corewar.Warrior(coresize=80,standard=Corewar.STANDARD_94_NOP)
+    cross_over = random.randint(0, 4)
+    i = 0
+    while i < cross_over:
+        insn = w1.instructions[i].copy()
+        warrior.instructions.append(insn)
+        i += 1
+    while i < 5:
+        insn = w2.instructions[i].copy()
+        warrior.instructions.append(insn)
+        i += 1
+
+    # Mutate instruction.
+    for i in xrange(5):
+        if random.random() < 0.1:
+            if random.random() < 0.1:
+                warrior.instructions[i].opcode = random.choice(OPCODES)
+            if random.random() < 0.2: 
+                warrior.instructions[i].modifier = random.choice(MODIFIERS)
+            if random.random() < 0.1:
+                warrior.instructions[i].amode = random.choice(MODES)
+            if random.random() < 0.1: 
+                warrior.instructions[i].bmode = random.choice(MODES)
+            if random.random() < 0.4:
+                if random.random() < 0.5:
+                    warrior.instructions[i].afield -= random.randint(0, 10)
+                else:
+                    warrior.instructions[i].afield += random.randint(0, 10)
+            if random.random() < 0.4:
+                if random.random() < 0.5:
+                    warrior.instructions[i].bfield -= random.randint(0, 10)
+                else:
+                    warrior.instructions[i].bfield += random.randint(0, 10)
+    warrior.start = random.randint(0, 4)
+
+    return warrior
+
+def replace_worst_warriors(warriors, hill, verbose):
+    """Replace the worst 20 warriors with better warriors created from the
+    current TOP 20 warriors."""
+
+    i = 1
+    while i < 21:
+        minscore = hill[-i][0]
+        score = 0
+        while score <= minscore:
+            w1 = warriors[hill[random.randint(0, 19)][1]]
+            w2 = warriors[hill[random.randint(0, 19)][1]]
+            w = create_new_warrior(w1, w2)
+            score = 0
+            for j in xrange(20):
+                opponent = warriors[hill[j][1]]
+                res = mars.run((w, opponent), 200, 474747)
+                score += 3 * res[0][0] + res[0][2]
+        warriors[hill[-i][1]] = w
+        if verbose:
+            print '\tReplacing warrior (new score: %d, old score: %d)' %\
+                  (score, minscore)
+        i += 1
+
+def evolve(warriors, hill, directory, verbose):
+    """Evolve warriors with the given initial hill."""
+
+    round = 1
+    while True:
+        # Save current "soup" every 10 rounds
+        if round % 10 == 0:
+            print 'Saving current warriors to working directory ...'
+            for i in xrange(len(warriors)):
+                save(warriors[i], directory, i)            
+
+        # Benchmark all warriors against the current TOP 20.
+        print 'Running round %d ... ' % round
+        new_hill = []
+        for i in xrange(len(warriors)):
+            warrior = warriors[i]
+            score = 0
+            for j in xrange(20):
+                opponent = warriors[hill[j][1]]
+                res = mars.run((warrior, opponent), 200, 474747)
+                score += 3 * res[0][0] + res[0][2]
+            new_hill.append((score, i))
+        new_hill.sort()
+        new_hill.reverse() 
+
+        # Replace the worst 20 warriors with better version created from
+        # the TOP 20 warriors.
+        hill = new_hill
+        if verbose:
+            code = str(warriors[hill[0][1]])
+            code = code[code.find('ORG      START') + 15:]
+            print 'Code of best warrior:'
+            print code
+            print 'Score: %d' % hill[0][0]
+
+        print 'Replacing worst warriors ...'
+        replace_worst_warriors(warriors, hill, verbose)
+ 
+        round += 1
+
+if __name__ == '__main__':
+    print 'Dodo Evolver %s - Copyright (C) 2006 Jens Gutzeit\n' % VERSION
+
+    mars = Corewar.Benchmarking.MARS_94nop(coresize=80,
+                                           maxprocesses=80,
+                                           maxcycles=800,
+                                           maxlength=5,
+                                           mindistance=5)
+
+    # Parse command line.
+    parser = optparse.OptionParser(usage='dodo_evolver [options] files ...',
+                                   version='Dodo Evolver %s (%s)' %\
+                                   (VERSION, DATE))
+    parser.set_defaults(verbose = True, directory = None, num_warriors = 0)
+    parser.add_option('-b', '--brief', action='store_false', dest='verbose',
+                      help='Be less verbose.')
+    parser.add_option('-d', '--directory', action='store', type='string',
+                      help='Set working directory.')
+    parser.add_option('-s', '--seed', action='store', type='int',
+                      dest='num_warriors',
+                      help='Seed the working directory with random warriors.')
+
+    (options, args) = parser.parse_args()
+
+    # Check command line options.
+    if not options.directory:
+        print 'ERROR: No working directory specified.'
+        sys.exit(1)
+    if not os.path.exists(options.directory):
+        print 'ERROR: Cannot find directory \'%s\'.' % options.directory
+        sys.exit(1)
+    if options.num_warriors < 0:
+        print 'ERROR: Invalid number of warriors to seed (%d).' %\
+              options.num_warriors
+        sys.exit(1)
+    if options.num_warriors > 0 and options.num_warriors < 50:
+        print 'ERROR: Number of warriors is too low (%d).' %\
+              options.num_warriors
+        sys.exit(1)
+    if options.num_warriors > 0:
+        # Make sure, that working directory is empty, if we seed it.
+        if not os.listdir(options.directory) == []:
+            print 'ERROR: Working directory must be empty before it is seeded.'
+            sys.exit(1)
+
+    # Seed working directory, if necessary.
+    if options.num_warriors > 0:
+        print 'Seeding working directory ...'
+        seed(options.directory, options.num_warriors)
+        sys.exit()
+
+    # Reading warriors from working directory.
+    print 'Reading warriors from working directory ...'
+    parser = Corewar.Parser(coresize=80, maxprocesses=80, maxcycles=800,
+                            maxlength=5, mindistance=5,
+                            standard=Corewar.STANDARD_94_NOP)
+    warriors = []
+    for fname in os.listdir(options.directory):
+        try:
+            warrior = parser.parse_file('%s/%s' % (options.directory, fname))
+        except:
+            print 'ERROR: Couldn\'t parse file %s.' % fname
+            sys.exit(1)
+        warriors.append(warrior)
+    if len(warriors) < 50:
+        print '\tERROR: Found only %d warriors' % len(warriors)
+        sys.exit(1)
+    if options.verbose:
+        print '\tFound %d warriors' % len(warriors)
+
+    # Create initial hill.
+    print 'Creating initial hill ...'
+    hill = create_initial_hill(warriors, options.verbose)
+
+    # Start evolving.
+    print 'Starting evolving ...'
+    evolve(warriors, hill, options.directory, options.verbose) 

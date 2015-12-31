@@ -1,0 +1,15 @@
+
+		/* Run one round. */
+		cycle = numwarriors * maxcycles;
+		numalive = numwarriors;
+		insn_counter += numwarriors * maxcycles;
+		do {
+			insn_t *ip;    /* Pointer to the currently executed
+				        * instruction. */
+			field_t ra_b;  /* A register value */
+			field_t rb_b;  /* B register value */
+			insn_t *aAddr; /* Pointer to address specified by
+					* A operand. */
+			insn_t *bAddr; /* Pointer to address specified by
+					* B operand. */
+

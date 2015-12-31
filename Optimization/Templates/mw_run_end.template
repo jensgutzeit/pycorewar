@@ -1,0 +1,27 @@
+		} while ((--cycle > 0) & (numalive > 1));
+
+		/* Update instruction counter. */
+		insn_counter -= cycle;
+
+		/* Accumulate results. */
+		for (i = 0; i < numwarriors; i++) {
+			if (pq_infos[i].numprocesses == 0) {
+				/* Warrior died this round. */
+				results[i*(numwarriors + 1) + numwarriors]++;
+			} else {
+				/* Warrior survived/won this round. */
+				results[i*(numwarriors + 1) + numalive - 1]++;
+			}
+		}
+	}
+
+	/* Save number of executed instructions. */
+	results[numwarriors * (numwarriors + 1)] = insn_counter;
+
+	/* Clean up. */
+	free(positions);
+	free(pq_infos);
+	free(pqueue);
+
+	return results;
+}

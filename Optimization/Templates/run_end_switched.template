@@ -1,0 +1,30 @@
+		} while (--cycle);
+
+round_done:	/* Accumulate results. */
+		if (round % 2 == 0) {
+			if (numprocesses1 == 0) {
+				results[1]++; /* First warrior has lost. */
+			} else if (numprocesses2 == 0) {
+				results[0]++; /* First warrior has won. */
+			} else {
+				results[2]++; /* Tie. */
+			}
+		} else {
+			if (numprocesses1 == 0) {
+				results[0]++; /* Second warrior has lost. */
+			} else if (numprocesses2 == 0) {
+				results[1]++; /* Second warrior has won. */
+			} else {
+				results[2]++; /* Tie. */
+			}
+		}
+	}
+
+	/* Save number of executed instructions. */
+	results[3] = insn_counter;
+	
+	/* Clean up. */
+	free(pqueue);
+
+	return results;
+}
