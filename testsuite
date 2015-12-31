@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python2
 #
 # Test suite for PyCorewar
 #
@@ -28,8 +28,8 @@ if __name__ == '__main__':
     tests = []
    
     tests.append(unittest.makeSuite(Test.Redcode.TestCase)) 
-    #tests.append(unittest.makeSuite(Test.Instruction88.TestCase))
-    #tests.append(unittest.makeSuite(Test.BenchmarkingMARS88.TestCase))
+    tests.append(unittest.makeSuite(Test.Instruction88.TestCase))
+    tests.append(unittest.makeSuite(Test.BenchmarkingMARS88.TestCase))
     
     allTests = unittest.TestSuite(tests)
 
