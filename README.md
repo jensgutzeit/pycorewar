@@ -2,7 +2,7 @@
 
 PyCorewar is a fast MARS with an easy to use Python interface. It is
 released under The GNU General Public License, Version 2 (see the file
-COPYING for details).
+[COPYING](COPYING) for details).
 
 At the moment the following features are supported:
 
@@ -10,40 +10,35 @@ At the moment the following features are supported:
 - ICWS '94 draft (without P-Space)
 - most features of pMARS' parser
 
-# Requirements
+## Requirements
 
 You need Python 2 (!) and a recent version of GCC for compiling PyCorewar.
 
-# How to build
+## How to build
 
   `python2 setup.py build`
 
-# How to install
+## How to install
 
   `python2 setup.py install`
 
-# Bug reports
+## Bug reports
 
-Please send any bug reports to [jens@jgutzeit.de](mailto:jens@jgutzeit.de).
+Please send any bug reports to [jens@gutzeit.name](mailto:jens@gutzeit.name).
 
-# Thanks
+## Thanks
 
 Writing PyCorewar would have been almost impossible without the help of the
-Core War Community. Special thanks go to
+Core War Community:
 
-  Sascha Zapf for endlessly running benchmarks and testsuites and providing
+- Sascha Zapf for endlessly running benchmarks and testsuites and providing
   lots of ideas.
-
-  Albert Ma, Nandor Sieben, Stefan Strack and Mintardjo Wangsaw for writing
+- Albert Ma, Nandor Sieben, Stefan Strack and Mintardjo Wangsaw for writing
   pMARS
-
-  M Joonas Pihlaja for writing exhaust, which made it very easy to understand
+- M Joonas Pihlaja for writing exhaust, which made it very easy to understand
   the inner workings of a MARS
-
-  Martin Ankerl for writing exhaust-ma, where I have found a lot of ideas
+- Martin Ankerl for writing exhaust-ma, where I have found a lot of ideas
   for optimizing PyCorewar.
-
-  Michal Janeczek for writing fmars, where I have found even more ideas for
+- Michal Janeczek for writing fmars, where I have found even more ideas for
   optimizing PyCorewar.
-
-  Paul V-Khoung for several nice chats about optimizing PyCorewar
+- Paul V-Khoung for several nice chats about optimizing PyCorewar
